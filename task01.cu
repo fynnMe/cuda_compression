@@ -30,26 +30,40 @@ int main (int argc, char **argv){
     // Use GPU 1
     cudaSetDevice(1);
 
-    // Declare host data
-    uint64_t* a_h = new uint64_t[NUM_ELEMENTS];
-    uint64_t* b_h = new uint64_t[NUM_ELEMENTS];
+    // Initialize host data
+    uint64_t* a_host = new uint64_t[NUM_ELEMENTS];
+    uint64_t* b_host = new uint64_t[NUM_ELEMENTS];
+    uint64_t* c_host = new uint64_t[NUM_ELEMENTS];
+
+    // Initialize device data
+    uint64_t* a_device = 0;
+    uint64_t* b_device = 0;
+    uint64_t* c_device = 0;
 
     
     // Gerenate host data
     srand((unsigned int)time(NULL));
     for (int i = 0; i < NUM_ELEMENTS; ++i) {
-        a_h[i] = generate_random_64bit();
-        b_h[i] = generate_random_64bit();
-    }
-    
-    // Declare device data
-    
-
-    // Initialize device data
+        a_host[i] = generate_random_64bit();
+        b_host[i] = generate_random_64bit();
+    }    
 
     // Allocate device data
+    CUDA_CHECK  ( cudaMalloc((void**) &a_device, sizeof(uint64_t)*NUM_ELEMENTS));
+    CUDA_CHECK  ( cudaMalloc((void**) &b_device, sizeof(uint64_t)*NUM_ELEMENTS));
+    CUDA_CHECK  ( cudaMalloc((void**) &c_device, sizeof(uint64_t)*NUM_ELEMENTS));
 
     // Copy data from host to device
+    CUDA_CHECK  ( cudaMemcpy(   a_device,
+                                a_host,
+                                sizeof(uint64_t)*NUM_ELEMENTS,
+                                cudaMemcpyHostToDevice)
+                );
+    CUDA_CHECK  ( cudaMemcpy(   b_device,
+                                b_host,
+                                sizeof(uint64_t)*NUM_ELEMENTS,
+                                cudaMemcpyHostToDevice)
+                );
 
     // Invoke kernel
 
