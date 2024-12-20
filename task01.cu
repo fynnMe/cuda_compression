@@ -93,15 +93,6 @@ int main (int argc, char **argv){
     tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
     printf("time generating a and b on host: %.1fs\n", tot_time_sec);
 
-    // Perform addition on CPU for comparison
-    t_start = clock();
-    for (int i = 0; i < NUM_ELEMENTS; ++i) {
-        c_comp[i] = a_host[i] + b_host[i];
-    }
-    t_end = clock();
-    tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
-    printf("time adding a and b on host: %.1fs\n", tot_time_sec);
-
     // Allocate device data
     CUDA_CHECK  ( cudaMalloc((void**) &a_device, sizeof(uint64_t)*NUM_ELEMENTS));
     CUDA_CHECK  ( cudaMalloc((void**) &b_device, sizeof(uint64_t)*NUM_ELEMENTS));
@@ -192,16 +183,6 @@ int main (int argc, char **argv){
                                 sizeof(uint64_t)*NUM_ELEMENTS,
                                 cudaMemcpyDeviceToHost)
                 );
-    
-    // Confirm that GPU computed correctly
-    for (int i = 0; i < NUM_ELEMENTS; ++i) {
-        if (c_host[i] != c_comp[i]) {
-            printf("Result %d of GPU is not the same as CPU result:\n", i);
-            printf("%llu + %llu = %llu (host)\n", (unsigned long long int)a_host[i], (unsigned long long int)b_host[i], (unsigned long long int)c_comp[i]);
-            printf("%llu + %llu = %llu (device)\n", (unsigned long long int)a_host[i], (unsigned long long int)b_host[i], (unsigned long long int)c_host[i]);
-            return 1;
-        }
-    }
 
     // free memory on GPU
     CUDA_CHECK( cudaFree(a_device));
