@@ -4,11 +4,13 @@
 #include <stdint.h>
 #include <assert.h>
 #include <math.h>
+#include <time.h>
 
 // CUDA Error handler to be placed around all CUDA calls
 #define CUDA_CHECK(cmd) {cudaError_t error = cmd; if(error!=cudaSuccess){printf("<%s>:%i ",__FILE__,__LINE__); printf("[CUDA] Error: %s\n", cudaGetErrorString(error));}}
 
 #define NUM_ELEMENTS 125000000
+#define NUM_ITERATIONS_PER_CONFIG 5
 
 // Grid-striding kernel for vector add
 __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c){
@@ -75,17 +77,30 @@ int main (int argc, char **argv){
     uint64_t* b_device = 0;
     uint64_t* c_device = 0;
 
+    // Declare time measurment variables
+    clock_t t_start, t_end;
+    double tot_time_milliseconds[NUM_ITERATIONS_PER_CONFIG];
+    double tot_time_sec, avg_time_milliseconds;
+
     // Gerenate host data
+    t_start = clock();
     srand((unsigned int)time(NULL));
     for (int i = 0; i < NUM_ELEMENTS; ++i) {
         a_host[i] = generate_random_64bit();
         b_host[i] = generate_random_64bit();
     }
+    t_end = clock();
+    tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
+    printf("time generating a and b on host: %.1fs\n", tot_time_sec);
 
     // Perform addition on CPU for comparison
+    t_start = clock();
     for (int i = 0; i < NUM_ELEMENTS; ++i) {
         c_comp[i] = a_host[i] + b_host[i];
     }
+    t_end = clock();
+    tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
+    printf("time adding a and b on host: %.1fs\n", tot_time_sec);
 
     // Allocate device data
     CUDA_CHECK  ( cudaMalloc((void**) &a_device, sizeof(uint64_t)*NUM_ELEMENTS));
@@ -93,6 +108,7 @@ int main (int argc, char **argv){
     CUDA_CHECK  ( cudaMalloc((void**) &c_device, sizeof(uint64_t)*NUM_ELEMENTS));
 
     // Copy data from host to device
+    t_start = clock();
     CUDA_CHECK  ( cudaMemcpy(   a_device,
                                 a_host,
                                 sizeof(uint64_t)*NUM_ELEMENTS,
@@ -103,6 +119,9 @@ int main (int argc, char **argv){
                                 sizeof(uint64_t)*NUM_ELEMENTS,
                                 cudaMemcpyHostToDevice)
                 );
+    t_end = clock();
+    tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
+    printf("time copying a and b to device: %.3fs\n\n", tot_time_sec);
     
     // Test different block sizes (common powers of 2)
     int block_sizes_len = ceil ( log2( block_size_max / block_size_min ) ) + 1;
@@ -141,12 +160,29 @@ int main (int argc, char **argv){
     // Invoke kernel
     for (int i = 0; i < block_sizes_len; ++i) {
         for (int j = 0; j < grid_sizes_len; ++j) {
-            // Set dim_block and dim_grid
-            dim3 dim_block(block_sizes[i]);
-            dim3 dim_grid(grid_sizes[i]);
+            for (int k = 0; k < NUM_ITERATIONS_PER_CONFIG; ++k) {                
+                // Set dim_block and dim_grid
+                dim3 dim_block(block_sizes[i]);
+                dim3 dim_grid(grid_sizes[i]);
 
-            // Call kernel
-            add<<<dim_grid, dim_block>>>(a_device, b_device, c_device);
+                // Call kernel
+                t_start = clock();
+                add<<<dim_grid, dim_block>>>(a_device, b_device, c_device);
+                t_end = clock();
+                tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
+                tot_time_milliseconds[k] = tot_time_sec * 1000;
+                //printf("runtime: %.6fms\n", tot_time_milliseconds[k]);
+            }
+
+            // Calculate average runtime
+            avg_time_milliseconds = 0;
+            for (int k = 0; k < NUM_ITERATIONS_PER_CONFIG; ++k) {
+                avg_time_milliseconds += tot_time_milliseconds[k];
+            }
+            avg_time_milliseconds = avg_time_milliseconds / NUM_ITERATIONS_PER_CONFIG;
+
+            // Print runtime
+            printf("block size: %d, grid_size: %d, runtime %.6fms\n", block_sizes[i], grid_sizes[j], avg_time_milliseconds);
         }
     }
 
