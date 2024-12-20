@@ -77,42 +77,15 @@ int main (int argc, char **argv){
     uint64_t* b_device = 0;
     uint64_t* c_device = 0;
 
-    // Declare time measurment variables
-    clock_t t_start, t_end;
-    double tot_time_milliseconds[NUM_ITERATIONS_PER_CONFIG];
-    double tot_time_sec, avg_time_milliseconds;
-
-    // Gerenate host data
-    t_start = clock();
-    srand((unsigned int)time(NULL));
-    for (int i = 0; i < NUM_ELEMENTS; ++i) {
-        a_host[i] = generate_random_64bit();
-        b_host[i] = generate_random_64bit();
-    }
-    t_end = clock();
-    tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
-    printf("time generating a and b on host: %.1fs\n", tot_time_sec);
-
     // Allocate device data
     CUDA_CHECK  ( cudaMalloc((void**) &a_device, sizeof(uint64_t)*NUM_ELEMENTS));
     CUDA_CHECK  ( cudaMalloc((void**) &b_device, sizeof(uint64_t)*NUM_ELEMENTS));
     CUDA_CHECK  ( cudaMalloc((void**) &c_device, sizeof(uint64_t)*NUM_ELEMENTS));
 
-    // Copy data from host to device
-    t_start = clock();
-    CUDA_CHECK  ( cudaMemcpy(   a_device,
-                                a_host,
-                                sizeof(uint64_t)*NUM_ELEMENTS,
-                                cudaMemcpyHostToDevice)
-                );
-    CUDA_CHECK  ( cudaMemcpy(   b_device,
-                                b_host,
-                                sizeof(uint64_t)*NUM_ELEMENTS,
-                                cudaMemcpyHostToDevice)
-                );
-    t_end = clock();
-    tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
-    printf("time copying a and b to device: %.3fs\n\n", tot_time_sec);
+    // Declare time measurment variables
+    clock_t t_start, t_end;
+    double tot_time_milliseconds[NUM_ITERATIONS_PER_CONFIG];
+    double tot_time_sec, avg_time_milliseconds;
     
     // Test different block sizes (common powers of 2)
     int block_sizes_len = ceil ( log2( block_size_max / block_size_min ) ) + 1;
@@ -152,6 +125,25 @@ int main (int argc, char **argv){
     for (int i = 0; i < block_sizes_len; ++i) {
         for (int j = 0; j < grid_sizes_len; ++j) {
             for (int k = 0; k < NUM_ITERATIONS_PER_CONFIG; ++k) {                
+                // Gerenate host data
+                srand((unsigned int)time(NULL));
+                for (int l = 0; l < NUM_ELEMENTS; ++l) {
+                    a_host[l] = generate_random_64bit();
+                    b_host[l] = generate_random_64bit();
+                }
+
+                // Copy data from host to device
+                CUDA_CHECK  ( cudaMemcpy(   a_device,
+                                            a_host,
+                                            sizeof(uint64_t)*NUM_ELEMENTS,
+                                            cudaMemcpyHostToDevice)
+                            );
+                CUDA_CHECK  ( cudaMemcpy(   b_device,
+                                            b_host,
+                                            sizeof(uint64_t)*NUM_ELEMENTS,
+                                            cudaMemcpyHostToDevice)
+                            );
+                
                 // Set dim_block and dim_grid
                 dim3 dim_block(block_sizes[i]);
                 dim3 dim_grid(grid_sizes[i]);
