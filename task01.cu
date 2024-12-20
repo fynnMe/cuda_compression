@@ -9,10 +9,6 @@
 
 #define NUM_ELEMENTS 125000000
 
-// Declare host data
-uint64_t a[NUM_ELEMENTS];
-uint64_t b[NUM_ELEMENTS];
-
 __global__ void kernel(){
     // Determine global thread index
     int idx = threadIdx.x + blockIdx.x*blockDim.x;
@@ -33,16 +29,21 @@ uint64_t generate_random_64bit() {
 int main (int argc, char **argv){
     // Use GPU 1
     cudaSetDevice(1);
+
+    // Declare host data
+    uint64_t* a_h = new uint64_t[NUM_ELEMENTS];
+    uint64_t* b_h = new uint64_t[NUM_ELEMENTS];
+
     
     // Gerenate host data
     srand((unsigned int)time(NULL));
     for (int i = 0; i < NUM_ELEMENTS; ++i) {
-        a[i] = generate_random_64bit();
-        b[i] = generate_random_64bit();
+        a_h[i] = generate_random_64bit();
+        b_h[i] = generate_random_64bit();
     }
     
     // Declare device data
-
+    
 
     // Initialize device data
 
