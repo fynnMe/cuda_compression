@@ -25,12 +25,25 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c){
 }
 
 uint64_t generate_random_64bit() {
-    // Combine two 32-bit random numbers to form a 64-bit number
     uint64_t high = (uint64_t)rand(); // Generate the high 32 bits
     uint64_t low = (uint64_t)rand();  // Generate the low 32 bits
 
-    // Shift the high part and combine with the low part
-    return (high << 32) | low;
+    // Shift the high part and combine with low part
+    // Use & 0x7FFFFFFFFFFFFFFF to force MSB to 0
+    return ((high << 32) | low) & 0x7FFFFFFFFFFFFFFF;
+}
+
+void print_binary(uint64_t num) {
+    // Print 64 bits, starting from MSB
+    for(int i = 63; i >= 0; i--) {
+        printf("%lu", (num >> i) & 1UL);  // Changed %d to %lu and added UL suffix
+        
+        // Optional: Add space every 8 bits for readability
+        if (i % 8 == 0) {
+            printf(" ");
+        }
+    }
+    printf("\n");
 }
 
 int main (int argc, char **argv){
@@ -38,6 +51,9 @@ int main (int argc, char **argv){
         printf("Usage: %s <block_size_min> <block_size_max> <grid_size_min> <grid_size_max>\n", argv[0]);
         return 1;
     }
+
+    // Enable accurate printf debugging
+    setbuf(stdout, NULL);
 
     // Rename input
     int block_size_min = atoi(argv[1]);
@@ -52,19 +68,24 @@ int main (int argc, char **argv){
     uint64_t* a_host = new uint64_t[NUM_ELEMENTS];
     uint64_t* b_host = new uint64_t[NUM_ELEMENTS];
     uint64_t* c_host = new uint64_t[NUM_ELEMENTS];
+    uint64_t* c_comp = new uint64_t[NUM_ELEMENTS];
 
     // Initialize device data
     uint64_t* a_device = 0;
     uint64_t* b_device = 0;
     uint64_t* c_device = 0;
 
-    
     // Gerenate host data
     srand((unsigned int)time(NULL));
     for (int i = 0; i < NUM_ELEMENTS; ++i) {
         a_host[i] = generate_random_64bit();
         b_host[i] = generate_random_64bit();
-    }    
+    }
+
+    // Perform addition on CPU for comparison
+    for (int i = 0; i < NUM_ELEMENTS; ++i) {
+        c_comp[i] = a_host[i] + b_host[i];
+    }
 
     // Allocate device data
     CUDA_CHECK  ( cudaMalloc((void**) &a_device, sizeof(uint64_t)*NUM_ELEMENTS));
@@ -82,8 +103,6 @@ int main (int argc, char **argv){
                                 sizeof(uint64_t)*NUM_ELEMENTS,
                                 cudaMemcpyHostToDevice)
                 );
-
-    // Invoke kernel
     
     // Test different block sizes (common powers of 2)
     int block_sizes_len = ceil ( log2( block_size_max / block_size_min ) ) + 1;
@@ -119,12 +138,34 @@ int main (int argc, char **argv){
     }
     printf("}\n\n");
 
+    // Invoke kernel
+    for (int i = 0; i < block_sizes_len; ++i) {
+        for (int j = 0; j < grid_sizes_len; ++j) {
+            // Set dim_block and dim_grid
+            dim3 dim_block(block_sizes[i]);
+            dim3 dim_grid(grid_sizes[i]);
+
+            // Call kernel
+            add<<<dim_grid, dim_block>>>(a_device, b_device, c_device);
+        }
+    }
+
     // Copy back result from device to host
     CUDA_CHECK  ( cudaMemcpy(   c_host,
                                 c_device,
                                 sizeof(uint64_t)*NUM_ELEMENTS,
                                 cudaMemcpyDeviceToHost)
                 );
+    
+    // Confirm that GPU computed correctly
+    for (int i = 0; i < NUM_ELEMENTS; ++i) {
+        if (c_host[i] != c_comp[i]) {
+            printf("Result %d of GPU is not the same as CPU result:\n", i);
+            printf("%llu + %llu = %llu (host)\n", (unsigned long long int)a_host[i], (unsigned long long int)b_host[i], (unsigned long long int)c_comp[i]);
+            printf("%llu + %llu = %llu (device)\n", (unsigned long long int)a_host[i], (unsigned long long int)b_host[i], (unsigned long long int)c_host[i]);
+            return 1;
+        }
+    }
 
     // free memory on GPU
     CUDA_CHECK( cudaFree(a_device));
@@ -135,6 +176,7 @@ int main (int argc, char **argv){
     delete[] a_host;
     delete[] b_host;
     delete[] c_host;
+    delete[] c_comp;
 
    return 0;
 }
