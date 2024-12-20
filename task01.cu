@@ -30,7 +30,7 @@ int main (int argc, char **argv){
 
     // Copy back result from device to host
 
-    // free memroy on GPU
+    // free memory on GPU
 
     // free memory on host
 
