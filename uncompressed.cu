@@ -52,6 +52,14 @@ int main (int argc, char **argv){
 
     // Enable accurate printf debugging
     setbuf(stdout, NULL);
+    FILE *csv_file = fopen("uncompressed_configs.csv", "w");
+    if (csv_file == NULL) {
+        printf("Error opening CSV file!\n");
+        return 1;
+    }
+    // Write CSV header
+    fprintf(csv_file, "block_size,grid_size,runtime\n");
+
 
     // Rename input
     int block_size_min = atoi(argv[1]);
@@ -160,8 +168,11 @@ int main (int argc, char **argv){
             }
             avg_time_milliseconds = avg_time_milliseconds / NUM_ITERATIONS_PER_CONFIG;
 
-            // Print runtime
+            // Print average runtime
             printf("block size: %d, grid_size: %d, runtime %.6fms\n", block_sizes[i], grid_sizes[j], avg_time_milliseconds);
+
+            // Add csv data entry
+            fprintf(csv_file, "%d,%d,%.6f\n", block_sizes[i], grid_sizes[j], avg_time_milliseconds);
         }
     }
 
@@ -182,6 +193,8 @@ int main (int argc, char **argv){
     delete[] b_host;
     delete[] c_host;
     delete[] c_comp;
+    
+    fclose(csv_file);
 
-   return 0;
+    return 0;
 }
