@@ -1,4 +1,4 @@
-// nvcc task01.cu -o task01
+// nvcc uncompressed.cu -o uncompressed
 
 #include <stdio.h>
 #include <stdint.h>
