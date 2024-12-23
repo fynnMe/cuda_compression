@@ -14,10 +14,6 @@
 
 // Grid-striding kernel for vector add
 __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c){
-    // Determine global thread index
-    
-
-    // Kernel operation
     for (int idx = threadIdx.x + blockIdx.x*blockDim.x;
          idx < NUM_ELEMENTS;
          idx += blockDim.x*gridDim.x) {
