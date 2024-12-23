@@ -9,7 +9,7 @@
 // CUDA Error handler to be placed around all CUDA calls
 #define CUDA_CHECK(cmd) {cudaError_t error = cmd; if(error!=cudaSuccess){printf("<%s>:%i ",__FILE__,__LINE__); printf("[CUDA] Error: %s\n", cudaGetErrorString(error));}}
 
-#define NUM_ELEMENTS 125000000
+#define NUM_ELEMENTS 125000000 // 1GiB for uncompressed array
 #define NUM_ITERATIONS_PER_CONFIG 5
 
 // Grid-striding kernel for vector add
@@ -31,12 +31,12 @@ uint64_t generate_random_64bit() {
     return ((high << 32) | low) & 0x7FFFFFFFFFFFFFFF;
 }
 
+// Print 64 bits, starting from MSB
 void print_binary(uint64_t num) {
-    // Print 64 bits, starting from MSB
     for(int i = 63; i >= 0; i--) {
-        printf("%lu", (num >> i) & 1UL);  // Changed %d to %lu and added UL suffix
+        printf("%lu", (num >> i) & 1UL);
         
-        // Optional: Add space every 8 bits for readability
+        // Add space every 8 bits for readability
         if (i % 8 == 0) {
             printf(" ");
         }
