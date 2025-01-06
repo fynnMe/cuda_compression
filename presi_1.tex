@@ -1,5 +1,6 @@
 \documentclass{beamer}
 \usepackage{listings}
+\usepackage{url}
 
 \title{Cuda Kompression - Task 1}
 \author{Fynn Meffert \and Theo Reichert}
@@ -39,6 +40,18 @@
               \centering
               \includegraphics[width=0.8\linewidth]{cuda_runtime_vs_array_size.jpg}
           \end{figure}
+    \end{itemize}
+\end{frame}
+
+\begin{frame}
+    \frametitle{Fragen}
+    Nvidia RTX 8000
+    \begin{itemize}
+        \item 4608 CUDA cores
+        \item 72 SMs mit je 64 Threads
+        \item Turing Architektur → maximal 16 Thread-Blocks pro SM.
+              Ist $72 \cdot 16 = 1152$ maximale Anazahl rechnender Blöcke
+              auf ganzer GPU zu einem Zeitpunk?
     \end{itemize}
 \end{frame}
 
