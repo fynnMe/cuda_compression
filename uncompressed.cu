@@ -1,4 +1,5 @@
 // nvcc uncompressed.cu -o uncompressed
+// ./uncompressed 32 1024 1 1024
 
 #include <stdio.h>
 #include <stdint.h>
