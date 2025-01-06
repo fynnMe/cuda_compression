@@ -3,3 +3,11 @@ compressed
 *.csv
 *.png
 virtualenvironment_python/
+*.aux
+*.log
+*.nav
+*.out
+*.snm
+*.toc
+*.vrb
+*.log
