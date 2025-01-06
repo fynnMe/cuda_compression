@@ -50,8 +50,8 @@
         \item 4608 CUDA cores
         \item 72 SMs mit je 64 Threads
         \item Turing Architektur → maximal 16 Thread-Blocks pro SM.
-              Ist $72 \cdot 16 = 1152$ maximale Anazahl rechnender Blöcke
-              auf ganzer GPU zu einem Zeitpunk?
+              Ist $72 \cdot 16 = 1152$ maximale Anzahl rechnender Blöcke
+              auf ganzer GPU zu einem Zeitpunkt?
     \end{itemize}
 \end{frame}
 
@@ -65,7 +65,7 @@
 \begin{frame}[fragile]
     \frametitle{Fragen}
     \framesubtitle{Kompression}
-    Daten auf dem Bus zwische Host und GPU, wenn bit-gepackt ub uin16
+    Daten auf dem Bus zwischen Host und GPU, wenn bit-gepackt in uin16
     \begin{lstlisting}
 unkomprimiertes Beispiel
 a: 0000 0xxx
@@ -79,7 +79,7 @@ b:    x xxxx                          bbbb baaa
 c:  xxx xxxx                 ccc cccc bbbb baaa
 d:   xx xxxx         d dddd dccc cccc bbbb baaa
     \end{lstlisting}
-    a, b und c passen in einen uint16, aber d nicht noch zusätzlich
+    a, b und c passen in einen uint16, aber d nicht noch zusätzlich.
 \end{frame}
 
 \begin{frame}[fragile]
