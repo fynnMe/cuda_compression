@@ -141,8 +141,18 @@ int main (int argc, char **argv){
     printf("}\n\n");
 
     // Invoke dummy kernel for GPU warmup
-    CUDA_CHECK  ( warmup_kernel<<<1, 1>>>() );
-    cudaDeviceSynchronize(); // Make sure GPU is ready [[2]]
+    warmup_kernel<<<1, 1>>>();
+    cudaError_t error = cudaGetLastError(); // Check for launch errors
+    if (error != cudaSuccess) {
+        printf("Launch error: %s\n", cudaGetErrorString(error));
+        return error;
+    }
+
+    error = cudaDeviceSynchronize(); // Check for execution errors
+    if (error != cudaSuccess) {
+        printf("Execution error: %s\n", cudaGetErrorString(error));
+        return error;
+    }
 
     // Invoke kernel
     for (int i = 0; i < block_sizes_len; ++i) {
@@ -173,8 +183,19 @@ int main (int argc, char **argv){
 
                 // Call kernel
                 cudaEventRecord(start);
-                CUDA_CHECK  ( add<<<dim_grid, dim_block>>>(a_device, b_device, c_device) );
+                add<<<dim_grid, dim_block>>>(a_device, b_device, c_device);
                 cudaEventRecord(stop);
+                error = cudaGetLastError(); // Check for launch errors
+                if (error != cudaSuccess) {
+                    printf("Launch error: %s\n", cudaGetErrorString(error));
+                    return error;
+                }
+
+                error = cudaDeviceSynchronize(); // Check for execution errors
+                if (error != cudaSuccess) {
+                    printf("Execution error: %s\n", cudaGetErrorString(error));
+                    return error;
+                }
                 cudaEventSynchronize(stop); // Wait for the stop event to complete
                 cudaEventElapsedTime(&tot_time_milliseconds[k], start, stop);
             }
