@@ -93,9 +93,9 @@ int main (int argc, char **argv){
     uint64_t* c_device = 0;
 
     // Allocate device data
-    CUDA_CHECK  ( cudaMalloc((void**) &a_device, sizeof(uint64_t)*NUM_ELEMENTS));
-    CUDA_CHECK  ( cudaMalloc((void**) &b_device, sizeof(uint64_t)*NUM_ELEMENTS));
-    CUDA_CHECK  ( cudaMalloc((void**) &c_device, sizeof(uint64_t)*NUM_ELEMENTS));
+    CUDA_CHECK  ( cudaMalloc((void**) &a_device, sizeof(uint64_t)*NUM_ELEMENTS) );
+    CUDA_CHECK  ( cudaMalloc((void**) &b_device, sizeof(uint64_t)*NUM_ELEMENTS) );
+    CUDA_CHECK  ( cudaMalloc((void**) &c_device, sizeof(uint64_t)*NUM_ELEMENTS) );
 
     // Declare time measurment variables
     cudaEvent_t start, stop;
@@ -141,7 +141,7 @@ int main (int argc, char **argv){
     printf("}\n\n");
 
     // Invoke dummy kernel for GPU warmup
-    warmup_kernel<<<1, 1>>>();
+    CUDA_CHECK  ( warmup_kernel<<<1, 1>>>() );
     cudaDeviceSynchronize(); // Make sure GPU is ready [[2]]
 
     // Invoke kernel
@@ -173,7 +173,7 @@ int main (int argc, char **argv){
 
                 // Call kernel
                 cudaEventRecord(start);
-                add<<<dim_grid, dim_block>>>(a_device, b_device, c_device);
+                CUDA_CHECK  ( add<<<dim_grid, dim_block>>>(a_device, b_device, c_device) );
                 cudaEventRecord(stop);
                 cudaEventSynchronize(stop); // Wait for the stop event to complete
                 cudaEventElapsedTime(&tot_time_milliseconds[k], start, stop);
@@ -203,9 +203,9 @@ int main (int argc, char **argv){
                 );
 
     // free memory on GPU
-    CUDA_CHECK( cudaFree(a_device));
-    CUDA_CHECK( cudaFree(b_device));
-    CUDA_CHECK( cudaFree(c_device));
+    CUDA_CHECK( cudaFree(a_device) );
+    CUDA_CHECK( cudaFree(b_device) );
+    CUDA_CHECK( cudaFree(c_device) );
 
     // free memory on host
     delete[] a_host;
@@ -214,6 +214,7 @@ int main (int argc, char **argv){
     delete[] c_comp;
     
     fclose(csv_file_configs);
+    fclose(csv_file_runtime);
 
     return 0;
 }
