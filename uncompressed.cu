@@ -11,7 +11,13 @@
 #define CUDA_CHECK(cmd) {cudaError_t error = cmd; if(error!=cudaSuccess){printf("<%s>:%i ",__FILE__,__LINE__); printf("[CUDA] Error: %s\n", cudaGetErrorString(error));}}
 
 #define NUM_ELEMENTS 268435456 // 1GiB for uncompressed array
-#define NUM_ITERATIONS_PER_CONFIG 5
+#define NUM_ITERATIONS_PER_CONFIG 3
+
+// Dummy kernel to warm up GPU
+__global__ void warmup_kernel()
+{
+    // Empty kernel, does nothing
+}
 
 // Grid-striding kernel for vector add
 __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c){
@@ -95,9 +101,13 @@ int main (int argc, char **argv){
     CUDA_CHECK  ( cudaMalloc((void**) &c_device, sizeof(uint64_t)*NUM_ELEMENTS));
 
     // Declare time measurment variables
-    clock_t t_start, t_end;
-    double tot_time_milliseconds[NUM_ITERATIONS_PER_CONFIG];
-    double tot_time_sec, avg_time_milliseconds;
+    cudaEvent_t start, stop;
+    float tot_time_milliseconds[NUM_ITERATIONS_PER_CONFIG];
+    float avg_time_milliseconds;
+
+    // Create CUDA events
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
 
     // Test different array sizes (common powers of 2)
     int num_elements_len = ceil ( log2( num_elements_max / num_elements_min ) ) + 1;
@@ -149,6 +159,10 @@ int main (int argc, char **argv){
     }
     printf("}\n\n");
 
+    // Invoke dummy kernel for GPU warmup
+    warmup_kernel<<<1, 1>>>();
+    cudaDeviceSynchronize(); // Make sure GPU is ready [[2]]
+
     // Invoke kernel
     for (int n = 0; n < num_elements_len; ++n) {
         for (int i = 0; i < block_sizes_len; ++i) {
@@ -178,11 +192,11 @@ int main (int argc, char **argv){
                     dim3 dim_grid(grid_sizes[i]);
 
                     // Call kernel
-                    t_start = clock();
+                    cudaEventRecord(start);
                     add<<<dim_grid, dim_block>>>(a_device, b_device, c_device);
-                    t_end = clock();
-                    tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
-                    tot_time_milliseconds[k] = tot_time_sec * 1000;
+                    cudaEventRecord(stop);
+                    cudaEventSynchronize(stop); // Wait for the stop event to complete
+                    cudaEventElapsedTime(&tot_time_milliseconds[k], start, stop);
                     //printf("runtime: %.6fms\n", tot_time_milliseconds[k]);
                 }
 
