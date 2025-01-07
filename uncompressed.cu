@@ -18,7 +18,15 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c){
     for (int idx = threadIdx.x + blockIdx.x*blockDim.x;
          idx < NUM_ELEMENTS;
          idx += blockDim.x*gridDim.x) {
-
+        
+        // TODO for compressing_kernel
+        // data going into and out of the compressing_kernel
+        //   is compressed
+        // unpack 8 times 8 bit uint from each element
+        // each 8 bit uint is decompressed into a uint64
+        // crazy bit operations for unpacking and packing
+        // calculate with 64 bit values and compress
+        // result into 8 bit by cutting off 56 upper bits
         c[idx] = a[idx] + b[idx];
     }
 }
@@ -29,7 +37,7 @@ uint64_t generate_random_64bit() {
 
     // Shift the high part and combine with low part
     // Use & 0x7FFFFFFFFFFFFFFF to force MSB to 0
-    return ((high << 32) | low) & 0x7FFFFFFFFFFFFFFF;
+    return ((high << 32) | low) & 0x7F7F7F7F7F7F7F7F;
 }
 
 // Print 64 bits, starting from MSB
@@ -47,6 +55,7 @@ void print_binary(uint64_t num) {
 
 int main (int argc, char **argv){
     if(argc != 5) {
+        // TODO dummy run to dodge first-run-performance-penalty
         printf("Usage: %s <block_size_min> <block_size_max> <grid_size_min> <grid_size_max>\n", argv[0]);
         return 1;
     }
@@ -154,9 +163,10 @@ int main (int argc, char **argv){
                 dim3 dim_grid(grid_sizes[i]);
 
                 // Call kernel
-                t_start = clock();
-                add<<<dim_grid, dim_block>>>(a_device, b_device, c_device);
-                t_end = clock();
+                t_start = clock(); // TODO "CUDA EVENT START"
+                CUDA_CHECK( add<<<dim_grid, dim_block>>>(a_device, b_device, c_device) );
+                // TODO CUDA EVENT SYNC nach dem Kernel
+                t_end = clock(); // TODO "CUDA EVENT END"
                 tot_time_sec = ((double)(t_end - t_start)) / CLOCKS_PER_SEC;
                 tot_time_milliseconds[k] = tot_time_sec * 1000;
                 //printf("runtime: %.6fms\n", tot_time_milliseconds[k]);

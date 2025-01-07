@@ -39,3 +39,6 @@ plt.savefig('kernel_performance_heatmap.png', dpi=300, bbox_inches='tight')
 
 # Show the plot
 plt.show()
+
+// TODO axes in diagramm with origin smal,small or big,big
+// TODO throughput instead of time
