@@ -29,6 +29,8 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements){
         uint64_t b_components[8];
         uint64_t c_components[8];
 
+        c[idx] = 0;
+
         for (int i = 0; i < 8; ++i) {
             // Extract components
             a_components[i] = (a[idx] & bitmask) >> i*8;
@@ -37,11 +39,8 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements){
 
             // Perform addition
             c_components[i] = a_components[i] + b_components[i];
-        }
 
-        // Compress c
-        c[idx] = 0;
-        for (int i = 0; i < 8; ++i) {
+            // Compress
             c[idx] = c[idx] | (c_components[i] << i*8);
         }
     }
