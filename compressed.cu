@@ -76,7 +76,7 @@ int main (int argc, char **argv){
 
     // Enable accurate printf debugging
     setbuf(stdout, NULL);
-    FILE *csv_file_configs = fopen("uncompressed_configs.csv", "w");
+    FILE *csv_file_configs = fopen("compressed_configs.csv", "w");
     if (csv_file_configs == NULL) {
         printf("Error opening CSV file!\n");
         return 1;
