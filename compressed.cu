@@ -33,7 +33,7 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements){
             // Extract components
             a_components[i] = (a[idx] & bitmask) >> i*8;
             b_components[i] = (b[idx] & bitmask) >> i*8;
-            bitmask = bitmask * 8;
+            bitmask = bitmask << 8;
 
             // Perform addition
             c_components[i] = a_components[i] + b_components[i];
@@ -42,7 +42,7 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements){
         // Compress c
         c[idx] = 0;
         for (int i = 0; i < 8; ++i) {
-            c[idx] = c[idx] | c_components[i] << i*8;
+            c[idx] = c[idx] | (c_components[i] << i*8);
         }
     }
 }
@@ -184,6 +184,11 @@ int main (int argc, char **argv){
                     b_host[l] = generate_random_64bit();
                 }
 
+                // Perform addition on CPU for comparison
+                for (int l = 0; l < num_elements; ++l) {
+                    c_comp[l] = a_host[l] + b_host[l];
+                }
+
                 // Copy data from host to device
                 CUDA_CHECK  ( cudaMemcpy(   a_device,
                                             a_host,
@@ -217,6 +222,24 @@ int main (int argc, char **argv){
                 }
                 cudaEventSynchronize(stop); // Wait for the stop event to complete
                 cudaEventElapsedTime(&tot_time_milliseconds[k], start, stop);
+
+                // Copy back result from device to host
+                CUDA_CHECK  ( cudaMemcpy(   c_host,
+                                            c_device,
+                                            sizeof(uint64_t)*num_elements,
+                                            cudaMemcpyDeviceToHost)
+                            );
+
+                // Confirm that GPU computed correctly
+                for (int l = 0; l < num_elements; ++l) {
+                    if (c_host[l] != c_comp[l]) {
+                        printf("Result %d of GPU is not the same as CPU result:\n", l);
+                        printf("%llu + %llu = %llu (host)\n", (unsigned long long int)a_host[l], (unsigned long long int)b_host[l], (unsigned long long int)c_comp[l]);
+                        printf("%llu + %llu = %llu (device)\n", (unsigned long long int)a_host[l], (unsigned long long int)b_host[l], (unsigned long long int)c_host[l]);
+                        return 1;
+                    }
+                }
+                printf("Result of GPU is the same as CPU result.\n");
             }
 
             // Calculate average runtime
@@ -234,13 +257,6 @@ int main (int argc, char **argv){
             fprintf(csv_file_runtime, "%d,%.6f\n", num_elements, avg_time_milliseconds);
         }
     }
-
-    // Copy back result from device to host
-    CUDA_CHECK  ( cudaMemcpy(   c_host,
-                                c_device,
-                                sizeof(uint64_t)*num_elements,
-                                cudaMemcpyDeviceToHost)
-                );
 
     // free memory on GPU
     CUDA_CHECK( cudaFree(a_device) );
