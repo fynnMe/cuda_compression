@@ -198,6 +198,13 @@ int main (int argc, char **argv){
                 }
                 cudaEventSynchronize(stop); // Wait for the stop event to complete
                 cudaEventElapsedTime(&tot_time_milliseconds[k], start, stop);
+
+                // Copy back result from device to host
+                CUDA_CHECK  ( cudaMemcpy(   c_host,
+                                            c_device,
+                                            sizeof(uint64_t)*num_elements,
+                                            cudaMemcpyDeviceToHost)
+                            );
             }
 
             // Calculate average runtime
@@ -215,13 +222,6 @@ int main (int argc, char **argv){
             fprintf(csv_file_runtime, "%d,%.6f\n", num_elements, avg_time_milliseconds);
         }
     }
-
-    // Copy back result from device to host
-    CUDA_CHECK  ( cudaMemcpy(   c_host,
-                                c_device,
-                                sizeof(uint64_t)*num_elements,
-                                cudaMemcpyDeviceToHost)
-                );
 
     // free memory on GPU
     CUDA_CHECK( cudaFree(a_device) );
