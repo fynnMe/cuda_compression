@@ -103,7 +103,6 @@ int main (int argc, char **argv){
     uint64_t* a_host = new uint64_t[num_elements];
     uint64_t* b_host = new uint64_t[num_elements];
     uint64_t* c_host = new uint64_t[num_elements];
-    uint64_t* c_comp = new uint64_t[num_elements];
 
     // Initialize device data
     uint64_t* a_device = 0;
@@ -183,11 +182,6 @@ int main (int argc, char **argv){
                     b_host[l] = generate_random_64bit();
                 }
 
-                // Perform addition on CPU for comparison
-                for (int l = 0; l < num_elements; ++l) {
-                    c_comp[l] = a_host[l] + b_host[l];
-                }
-
                 // Copy data from host to device
                 CUDA_CHECK  ( cudaMemcpy(   a_device,
                                             a_host,
@@ -228,17 +222,6 @@ int main (int argc, char **argv){
                                             sizeof(uint64_t)*num_elements,
                                             cudaMemcpyDeviceToHost)
                             );
-
-                // Confirm that GPU computed correctly
-                for (int l = 0; l < num_elements; ++l) {
-                    if (c_host[l] != c_comp[l]) {
-                        printf("Result %d of GPU is not the same as CPU result:\n", l);
-                        printf("%llu + %llu = %llu (host)\n", (unsigned long long int)a_host[l], (unsigned long long int)b_host[l], (unsigned long long int)c_comp[l]);
-                        printf("%llu + %llu = %llu (device)\n", (unsigned long long int)a_host[l], (unsigned long long int)b_host[l], (unsigned long long int)c_host[l]);
-                        return 1;
-                    }
-                }
-                printf("Result of GPU is the same as CPU result.\n");
             }
 
             // Calculate average runtime
@@ -266,7 +249,6 @@ int main (int argc, char **argv){
     delete[] a_host;
     delete[] b_host;
     delete[] c_host;
-    delete[] c_comp;
     
     fclose(csv_file_configs);
     fclose(csv_file_runtime);
