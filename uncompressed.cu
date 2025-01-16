@@ -41,7 +41,7 @@ uint64_t generate_random_64bit() {
 void print_binary(uint64_t num) {
     for(int i = 63; i >= 0; i--) {
         printf("%lu", (num >> i) & 1UL);
-        
+
         // Add space every 8 bits for readability
         if (i % 8 == 0) {
             printf(" ");
@@ -105,7 +105,7 @@ int main (int argc, char **argv){
     // Create CUDA events
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
-    
+
     // Test different block sizes (common powers of 2)
     int block_sizes_len = ceil ( log2( block_size_max / block_size_min ) ) + 1;
     int* block_sizes = new int[block_sizes_len];
@@ -116,7 +116,7 @@ int main (int argc, char **argv){
         block_sizes[i] = threads_per_block;
         ++i;
     }
-    
+
     // Test different grid sizes
     int grid_sizes_len = ceil ( log2( grid_size_max / grid_size_min ) ) + 1;
     int* grid_sizes = new int[ grid_sizes_len ];
@@ -157,7 +157,7 @@ int main (int argc, char **argv){
     // Invoke kernel
     for (int i = 0; i < block_sizes_len; ++i) {
         for (int j = 0; j < grid_sizes_len; ++j) {
-            for (int k = 0; k < NUM_ITERATIONS_PER_CONFIG; ++k) {                
+            for (int k = 0; k < NUM_ITERATIONS_PER_CONFIG; ++k) {
                 // Gerenate host data
                 srand((unsigned int)time(NULL));
                 for (int l = 0; l < num_elements; ++l) {
@@ -176,10 +176,11 @@ int main (int argc, char **argv){
                                             sizeof(uint64_t)*num_elements,
                                             cudaMemcpyHostToDevice)
                             );
-                
+
+                // TODO: use one dimensional datastructure ()
                 // Set dim_block and dim_grid
                 dim3 dim_block(block_sizes[i]);
-                dim3 dim_grid(grid_sizes[i]);
+                dim3 dim_grid(grid_sizes[j]);
 
                 // Call kernel
                 cudaEventRecord(start);
