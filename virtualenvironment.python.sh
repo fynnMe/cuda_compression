@@ -6,7 +6,7 @@
 #   a python virtual environment;
 #   install dependencies via `pip`;
 
-python -m venv virtualenvironment_python
+python3 -m venv virtualenvironment_python
 source ./virtualenvironment_python/bin/activate
 
 pip install pandas seaborn matplotlib

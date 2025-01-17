@@ -1,5 +1,4 @@
-// nvcc uncompressed.cu -o uncompressed
-// ./uncompressed 32 1024 1 1024
+// compile with `nvcc uncompressed.cu -o uncompressed`
 
 #include <stdio.h>
 #include <stdint.h>
@@ -60,7 +59,7 @@ int main (int argc, char **argv){
     setbuf(stdout, NULL);
 
     // Open CSV
-    FILE *csv_file = fopen("data_uncompressed_kernel.csv", "a");
+    FILE *csv_file = fopen("uncompressed_configs.csv", "a");
     if (csv_file == NULL) {
         printf("Error opening CSV file!\n");
         return 1;

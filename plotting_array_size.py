@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 # Read data from CSV file
-data = pd.read_csv('compressed_array_size.csv')
+data = pd.read_csv('compressed_array_size.csv', sep=';')
 array_sizes = data['array_size']
 
 # Calculate array sizes in bytes

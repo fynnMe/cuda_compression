@@ -3,10 +3,12 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 # Read the CSV file
-df = pd.read_csv('uncompressed_configs.csv')
+df = pd.read_csv('uncompressed_configs.csv', sep=';')
+
+print(df['block_size'])
 
 # Calculate throughput (MB/s)
-num_elements = 134217728
+num_elements = 134217728 # TODO hardcoded here but not in uncompressed.cu
 bytes_processed = num_elements * 8
 gigabytes_processed = bytes_processed / (1024 * 1024 * 1024)  # Convert to GB
 df['throughput'] = gigabytes_processed / (df['runtime'] / 1000)  # GB/s
