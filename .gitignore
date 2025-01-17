@@ -1,3 +1,5 @@
 uncompressed
 compressed
 *.csv
+*.png
+virtualenvironment_python/

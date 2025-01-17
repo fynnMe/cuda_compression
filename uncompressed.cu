@@ -1,5 +1,3 @@
-// compile with `nvcc uncompressed.cu -o uncompressed`
-
 #include <stdio.h>
 #include <stdint.h>
 #include <assert.h>

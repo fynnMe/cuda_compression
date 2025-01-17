@@ -5,8 +5,6 @@ import matplotlib.pyplot as plt
 # Read the CSV file
 df = pd.read_csv('uncompressed_configs.csv', sep=';')
 
-print(df['block_size'])
-
 # Calculate throughput (MB/s)
 num_elements = 134217728 # TODO hardcoded here but not in uncompressed.cu
 bytes_processed = num_elements * 8
