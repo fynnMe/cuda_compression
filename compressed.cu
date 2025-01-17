@@ -1,5 +1,5 @@
-// nvcc uncompressed.cu -o uncompressed
-// ./uncompressed 32 1024 1 1024
+// nvcc compressed.cu -o compressed
+// ./compressed 32 1024 1 1024
 
 #include <stdio.h>
 #include <stdint.h>
@@ -69,35 +69,36 @@ void print_binary(uint64_t num) {
 }
 
 int main (int argc, char **argv){
-    if(argc != 6) {
-        printf("Usage: %s <num_elements> <block_size_min> <block_size_max> <grid_size_min> <grid_size_max>\n", argv[0]);
+    if(argc != 4) {
+        printf("Usage: %s <num_elements> <block_size> <grid_size>\n", argv[0]);
         return 1;
     }
 
     // Enable accurate printf debugging
     setbuf(stdout, NULL);
-    FILE *csv_file_configs = fopen("compressed_configs.csv", "w");
-    if (csv_file_configs == NULL) {
+
+    // Open CSV
+    FILE *csv_file = fopen("data_compressed_kernel.csv", "a");
+    if (csv_file == NULL) {
         printf("Error opening CSV file!\n");
         return 1;
     }
-    FILE *csv_file_runtime = fopen("compressed_runtimes.csv", "a");
-    if (csv_file_runtime == NULL) {
-        printf("Error opening CSV file!\n");
-        return 1;
+
+    // Write CSV header if needed
+    fseek(csv_file, 0, SEEK_END);
+    long size = ftell(csv_file);
+    if (size == 0) {
+        // File is empty, write header
+        fprintf(csv_file, "array_size;block_size;grid_size;runtime\n");
     }
-    // Write CSV header
-    fprintf(csv_file_configs, "block_size,grid_size,runtime\n");
 
     // Rename input
     int num_elements = atoi(argv[1]);
-    int block_size_min = atoi(argv[2]);
-    int block_size_max = atoi(argv[3]);
-    int grid_size_min = atoi(argv[4]);
-    int grid_size_max = atoi(argv[5]);
+    int block_size = atoi(argv[2]);
+    int grid_size = atoi(argv[3]);
 
     // Use GPU 1
-    cudaSetDevice(1);
+    // cudaSetDevice(1);
 
     // Initialize host data
     uint64_t* a_host = new uint64_t[num_elements];
@@ -123,40 +124,6 @@ int main (int argc, char **argv){
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
 
-    // Test different block sizes (common powers of 2)
-    int block_sizes_len = ceil ( log2( block_size_max / block_size_min ) ) + 1;
-    int* block_sizes = new int[block_sizes_len];
-    int i = 0;
-    for (int threads_per_block = block_size_min;
-         threads_per_block <= block_size_max;
-         threads_per_block = threads_per_block*2) {
-        block_sizes[i] = threads_per_block;
-        ++i;
-    }
-
-    // Test different grid sizes
-    int grid_sizes_len = ceil ( log2( grid_size_max / grid_size_min ) ) + 1;
-    int* grid_sizes = new int[ grid_sizes_len ];
-    i = 0;
-    for (int blocks_per_grid = grid_size_min;
-         blocks_per_grid <= grid_size_max;
-         blocks_per_grid = blocks_per_grid*2) {
-        grid_sizes[i] = blocks_per_grid;
-        ++i;
-    }
-
-    // Print block and grid sizes
-    printf("block_sizes = {");
-    for (int i = 0; i < block_sizes_len; ++i) {
-        printf(" %d ", block_sizes[i]);
-    }
-    printf("}\n");
-    printf("grid_sizes = {");
-    for (int i = 0; i < grid_sizes_len; ++i) {
-        printf(" %d ", grid_sizes[i]);
-    }
-    printf("}\n\n");
-
     // Invoke dummy kernel for GPU warmup
     warmup_kernel<<<1, 1>>>();
     cudaError_t error = cudaGetLastError(); // Check for launch errors
@@ -172,74 +139,64 @@ int main (int argc, char **argv){
     }
 
     // Invoke kernel
-    for (int i = 0; i < block_sizes_len; ++i) {
-        for (int j = 0; j < grid_sizes_len; ++j) {
-            for (int k = 0; k < NUM_ITERATIONS_PER_CONFIG; ++k) {
-                // Gerenate host data
-                srand((unsigned int)time(NULL));
-                for (int l = 0; l < num_elements; ++l) {
-                    a_host[l] = generate_random_64bit();
-                    b_host[l] = generate_random_64bit();
-                }
-
-                // Copy data from host to device
-                CUDA_CHECK  ( cudaMemcpy(   a_device,
-                                            a_host,
-                                            sizeof(uint64_t)*num_elements,
-                                            cudaMemcpyHostToDevice)
-                            );
-                CUDA_CHECK  ( cudaMemcpy(   b_device,
-                                            b_host,
-                                            sizeof(uint64_t)*num_elements,
-                                            cudaMemcpyHostToDevice)
-                            );
-
-                // TODO: use one dimensional datastructure ()
-                // Set dim_block and dim_grid
-                dim3 dim_block(block_sizes[i]);
-                dim3 dim_grid(grid_sizes[j]);
-
-                // Call kernel
-                cudaEventRecord(start);
-                add<<<dim_grid, dim_block>>>(a_device, b_device, c_device, num_elements);
-                cudaEventRecord(stop);
-                error = cudaGetLastError(); // Check for launch errors
-                if (error != cudaSuccess) {
-                    printf("Launch error: %s\n", cudaGetErrorString(error));
-                    return error;
-                }
-
-                error = cudaDeviceSynchronize(); // Check for execution errors
-                if (error != cudaSuccess) {
-                    printf("Execution error: %s\n", cudaGetErrorString(error));
-                    return error;
-                }
-                cudaEventSynchronize(stop); // Wait for the stop event to complete
-                cudaEventElapsedTime(&tot_time_milliseconds[k], start, stop);
-
-                // Copy back result from device to host
-                CUDA_CHECK  ( cudaMemcpy(   c_host,
-                                            c_device,
-                                            sizeof(uint64_t)*num_elements,
-                                            cudaMemcpyDeviceToHost)
-                            );
-            }
-
-            // Calculate average runtime
-            avg_time_milliseconds = 0;
-            for (int k = 0; k < NUM_ITERATIONS_PER_CONFIG; ++k) {
-                avg_time_milliseconds += tot_time_milliseconds[k];
-            }
-            avg_time_milliseconds = avg_time_milliseconds / NUM_ITERATIONS_PER_CONFIG;
-
-            // Print average runtime
-            printf("num_elements: %d, block size: %d, grid_size: %d, runtime %.6fms\n", num_elements, block_sizes[i], grid_sizes[j], avg_time_milliseconds);
-
-            // Add csv data entries
-            fprintf(csv_file_configs, "%d,%d,%.6f\n", block_sizes[i], grid_sizes[j], avg_time_milliseconds);
-            fprintf(csv_file_runtime, "%d,%.6f\n", num_elements, avg_time_milliseconds);
+    for (int k = 0; k < NUM_ITERATIONS_PER_CONFIG; ++k) {
+        // Gerenate host data
+        srand((unsigned int)time(NULL));
+        for (int l = 0; l < num_elements; ++l) {
+            a_host[l] = generate_random_64bit();
+            b_host[l] = generate_random_64bit();
         }
+
+        // Copy data from host to device
+        CUDA_CHECK  ( cudaMemcpy(   a_device,
+                                    a_host,
+                                    sizeof(uint64_t)*num_elements,
+                                    cudaMemcpyHostToDevice)
+                    );
+        CUDA_CHECK  ( cudaMemcpy(   b_device,
+                                    b_host,
+                                    sizeof(uint64_t)*num_elements,
+                                    cudaMemcpyHostToDevice)
+                    );
+
+        // Call kernel
+        cudaEventRecord(start);
+        add<<<grid_size, block_size>>>(a_device, b_device, c_device, num_elements);
+        cudaEventRecord(stop);
+        error = cudaGetLastError(); // Check for launch errors
+        if (error != cudaSuccess) {
+            printf("Launch error: %s\n", cudaGetErrorString(error));
+            return error;
+        }
+
+        error = cudaDeviceSynchronize(); // Check for execution errors
+        if (error != cudaSuccess) {
+            printf("Execution error: %s\n", cudaGetErrorString(error));
+            return error;
+        }
+        cudaEventSynchronize(stop); // Wait for the stop event to complete
+        cudaEventElapsedTime(&tot_time_milliseconds[k], start, stop);
+
+        // Copy back result from device to host
+        CUDA_CHECK  ( cudaMemcpy(   c_host,
+                                    c_device,
+                                    sizeof(uint64_t)*num_elements,
+                                    cudaMemcpyDeviceToHost)
+                    );
     }
+
+    // Calculate average runtime
+    avg_time_milliseconds = 0;
+    for (int k = 0; k < NUM_ITERATIONS_PER_CONFIG; ++k) {
+        avg_time_milliseconds += tot_time_milliseconds[k];
+    }
+    avg_time_milliseconds = avg_time_milliseconds / NUM_ITERATIONS_PER_CONFIG;
+
+    // Print average runtime
+    printf("num_elements: %d, block size: %d, grid_size: %d, runtime: %.6fms\n", num_elements, block_size, grid_size, avg_time_milliseconds);
+
+    // Add csv data entries
+    fprintf(csv_file, "%d;%d;%d;%.6f\n", num_elements, block_size, grid_size, avg_time_milliseconds);
 
     // free memory on GPU
     CUDA_CHECK( cudaFree(a_device) );
@@ -251,8 +208,7 @@ int main (int argc, char **argv){
     delete[] b_host;
     delete[] c_host;
 
-    fclose(csv_file_configs);
-    fclose(csv_file_runtime);
+    fclose(csv_file);
 
     return 0;
 }
