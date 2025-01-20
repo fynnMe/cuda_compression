@@ -3,9 +3,9 @@ import subprocess
 import itertools
 
 # Define the ranges for each parameter
-num_elements_range = [134217728]
-block_size_range = [2**i for i in range(5, 11)]
-grid_size_range = [2**i for i in range(1, 12)]
+num_elements_range = [2**i for i in range(10, 30)]
+block_size_range = [1024]
+grid_size_range = [2048]
 
 # Loop over all combinations using itertools.product
 for num_elements, block_size, grid_size in itertools.product(
@@ -15,7 +15,7 @@ for num_elements, block_size, grid_size in itertools.product(
 ):
     # Construct the command
     command = [
-        "./uncompressed",
+        "./compressed",
         str(num_elements),
         str(block_size),
         str(grid_size)
