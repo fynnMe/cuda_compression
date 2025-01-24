@@ -8,6 +8,8 @@
 #define CUDA_CHECK(cmd) {cudaError_t error = cmd; if(error!=cudaSuccess){printf("<%s>:%i ",__FILE__,__LINE__); printf("[CUDA] Error: %s\n", cudaGetErrorString(error));}}
 
 #define NUM_ITERATIONS_PER_CONFIG 3
+#define BITSIZE 11
+#define ELEMENTS_PER_INT 64 / BITSIZE
 
 // Dummy kernel to warm up GPU
 __global__ void warmup_kernel()
@@ -15,30 +17,34 @@ __global__ void warmup_kernel()
     // Empty kernel, does nothing
 }
 
-// Grid-striding kernel for vector add
-__global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements){
+// Grid-striding kernel for vector add with variable static bit size for all elements in a[i] and b[i]
+__global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
     for (int idx = threadIdx.x + blockIdx.x*blockDim.x;
          idx < num_elements;
          idx += blockDim.x*gridDim.x) {
-
-        uint64_t bitmask = 0xFF;
-        uint64_t a_components[8];
-        uint64_t b_components[8];
-        uint64_t c_components[8];
+        
+        // Create initial bitmask for one element
+        uint64_t single_element_mask = (1ULL << BITSIZE) - 1;
+        uint64_t bitmask = single_element_mask;
+        
+        // Dynamic arrays based on number of elements
+        uint64_t a_components[ELEMENTS_PER_INT];  // Max possible size
+        uint64_t b_components[ELEMENTS_PER_INT];
+        uint64_t c_components[ELEMENTS_PER_INT];
 
         c[idx] = 0;
 
-        for (int i = 0; i < 8; ++i) {
+        for (int i = 0; i < ELEMENTS_PER_INT; ++i) {
             // Extract components
-            a_components[i] = (a[idx] & bitmask) >> i*8;
-            b_components[i] = (b[idx] & bitmask) >> i*8;
-            bitmask = bitmask << 8;
+            a_components[i] = (a[idx] & bitmask) >> (i * BITSIZE);
+            b_components[i] = (b[idx] & bitmask) >> (i * BITSIZE);
+            bitmask = bitmask << BITSIZE;
 
             // Perform addition
             c_components[i] = a_components[i] + b_components[i];
 
             // Compress
-            c[idx] = c[idx] | (c_components[i] << i*8);
+            c[idx] = c[idx] | (c_components[i] << (i * BITSIZE));
         }
     }
 }
@@ -46,10 +52,21 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements){
 uint64_t generate_random_64bit() {
     uint64_t high = (uint64_t)rand(); // Generate the high 32 bits
     uint64_t low = (uint64_t)rand();  // Generate the low 32 bits
-
-    // Shift the high part and combine with low part
-    // Use & 0x7FFFFFFFFFFFFFFF to force MSB to 0
-    return ((high << 32) | low) & 0x7F7F7F7F7F7F7F7F;
+    uint64_t result = (high << 32) | low;
+    
+    // Calculate mask for one element of given BITSIZE
+    // Example: for 4-bit elements, single_element_mask = 0x0F
+    uint64_t single_element_mask = (1ULL << (BITSIZE - 1)) - 1;
+    
+    // Calculate full mask for all elements
+    uint64_t full_mask = 0;
+    
+    for (int i = 0; i < ELEMENTS_PER_INT; i++) {
+        full_mask |= (single_element_mask << (i * BITSIZE));
+    }
+    
+    // Apply mask to ensure MSB is 0 for each element of given BITSIZE
+    return result & full_mask;
 }
 
 // Print 64 bits, starting from MSB
@@ -140,8 +157,8 @@ int main (int argc, char **argv){
         // Gerenate host data
         srand((unsigned int)time(NULL));
         for (int l = 0; l < num_elements; ++l) {
-            a_host[l] = generate_random_64bit();
-            b_host[l] = generate_random_64bit();
+            a_host[l] = generate_random_64bit_variable();
+            b_host[l] = generate_random_64bit_variable();
         }
 
         // Copy data from host to device
