@@ -157,8 +157,8 @@ int main (int argc, char **argv){
         // Gerenate host data
         srand((unsigned int)time(NULL));
         for (int l = 0; l < num_elements; ++l) {
-            a_host[l] = generate_random_64bit_variable();
-            b_host[l] = generate_random_64bit_variable();
+            a_host[l] = generate_random_64bit();
+            b_host[l] = generate_random_64bit();
         }
 
         // Copy data from host to device
