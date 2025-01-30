@@ -25,9 +25,11 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
         
         // Arrays based on number of elements
         int elements_per_block = blockDim.x/ELEMENTS_PER_INT;
-        extern __shared__ uint64_t a_block[];
-        extern __shared__ uint64_t b_block[];
-        extern __shared__ uint64_t c_block[];
+        extern __shared__ uint64_t shared_mem[];
+        uint64_t* a_block = shared_mem;
+        uint64_t* b_block = &shared_mem[elements_per_block];
+        uint64_t* c_block = &shared_mem[2 * elements_per_block];
+
 
         // First thread in a block initializes memory
         if (threadIdx.x == 0) {
@@ -193,7 +195,7 @@ int main (int argc, char **argv){
 
         // Call kernel
         cudaEventRecord(start);
-        add<<<grid_size, block_size, (block_size/ELEMENTS_PER_INT)>>>(a_device, b_device, c_device, num_elements);
+        add<<<grid_size, block_size, 3*(block_size/ELEMENTS_PER_INT)>>>(a_device, b_device, c_device, num_elements);
         cudaEventRecord(stop);
         error = cudaGetLastError(); // Check for launch errors
         if (error != cudaSuccess) {
