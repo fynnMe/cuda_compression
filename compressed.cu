@@ -23,28 +23,46 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
          idx < num_elements;
          idx += blockDim.x*gridDim.x) {
         
-        // Create initial bitmask for one element
-        uint64_t single_element_mask = (1ULL << BITSIZE) - 1;
-        uint64_t bitmask = single_element_mask;
+        // Arrays based on number of elements
+        int elements_per_block = blockDim.x/ELEMENTS_PER_INT;
+        extern __shared__ uint64_t a_block[];
+        extern __shared__ uint64_t b_block[];
+        extern __shared__ uint64_t c_block[];
+
+        // First thread in a block initializes memory
+        if (threadIdx.x == 0) {
+            for (int i = 0; i < elements_per_block; ++i) {
+                a_block[i] = a[i + blockIdx.x*blockDim.x];
+                b_block[i] = b[i + blockIdx.x*blockDim.x];
+                c_block[i] = 0;
+            }
+        }
+
+        __syncthreads(); // Wait until all threads in a block reach this point
+
+        uint64_t base_mask = (1ULL << BITSIZE) - 1;
+        uint64_t position_within_uint64 = threadIdx.x % ELEMENTS_PER_INT;
+        uint64_t bitmask = base_mask << (position_within_uint64 * BITSIZE);
+        uint64_t a_component, b_component, c_component;
+        int index_of_uint64_in_array = threadIdx.x/ELEMENTS_PER_INT;
+
+        // Extract components
+        a_component = (a_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
+        b_component = (b_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
+
+        // Perform addition
+        c_component = a_component + b_component;
+
+        // Compress
+        c_block[index_of_uint64_in_array] |= (c_component << (position_within_uint64 * BITSIZE));
+
+        __syncthreads(); // Wait until all threads in a block reach this point
         
-        // Dynamic arrays based on number of elements
-        uint64_t a_components[ELEMENTS_PER_INT];  // Max possible size
-        uint64_t b_components[ELEMENTS_PER_INT];
-        uint64_t c_components[ELEMENTS_PER_INT];
-
-        c[idx] = 0;
-
-        for (int i = 0; i < ELEMENTS_PER_INT; ++i) {
-            // Extract components
-            a_components[i] = (a[idx] & bitmask) >> (i * BITSIZE);
-            b_components[i] = (b[idx] & bitmask) >> (i * BITSIZE);
-            bitmask = bitmask << BITSIZE;
-
-            // Perform addition
-            c_components[i] = a_components[i] + b_components[i];
-
-            // Compress
-            c[idx] = c[idx] | (c_components[i] << (i * BITSIZE));
+        // First thread in a block copies back
+        if (threadIdx.x == 0) {
+            for (int i = 0; i < elements_per_block; ++i) {
+                c[i + blockIdx.x*blockDim.x] = c_block[i];
+            }
         }
     }
 }
@@ -175,7 +193,7 @@ int main (int argc, char **argv){
 
         // Call kernel
         cudaEventRecord(start);
-        add<<<grid_size, block_size>>>(a_device, b_device, c_device, num_elements);
+        add<<<grid_size, block_size, (block_size/ELEMENTS_PER_INT)>>>(a_device, b_device, c_device, num_elements);
         cudaEventRecord(stop);
         error = cudaGetLastError(); // Check for launch errors
         if (error != cudaSuccess) {
