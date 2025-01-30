@@ -56,7 +56,8 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
         c_component = a_component + b_component;
 
         // Compress
-        c_block[index_of_uint64_in_array] |= (c_component << (position_within_uint64 * BITSIZE));
+        atomicOr((unsigned long long*)&c_block[index_of_uint64_in_array], 
+         (unsigned long long)(c_component << (position_within_uint64 * BITSIZE)));
 
         __syncthreads(); // Wait until all threads in a block reach this point
         
