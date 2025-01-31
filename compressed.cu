@@ -8,7 +8,7 @@
 #define CUDA_CHECK(cmd) {cudaError_t error = cmd; if(error!=cudaSuccess){printf("<%s>:%i ",__FILE__,__LINE__); printf("[CUDA] Error: %s\n", cudaGetErrorString(error));}}
 
 #define NUM_ITERATIONS_PER_CONFIG 3
-#define BITSIZE 11
+#define BITSIZE 8
 #define ELEMENTS_PER_INT 64 / BITSIZE
 
 // Dummy kernel to warm up GPU
@@ -23,15 +23,20 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
          idx < num_elements;
          idx += blockDim.x*gridDim.x) {
         
-        // Arrays based on number of elements
+	// The count of threads in the block a.k.a. `blockDim.x`
+	//   divided by `ELEMENTS_PER_INT` and then floored
+	//   yields the ??? TODO
         int elements_per_block = blockDim.x/ELEMENTS_PER_INT;
+
+        // Arrays based on number of elements
         extern __shared__ uint64_t shared_mem[];
         uint64_t* a_block = shared_mem;
         uint64_t* b_block = &shared_mem[elements_per_block];
         uint64_t* c_block = &shared_mem[2 * elements_per_block];
 
-
-        // First thread in a block initializes memory
+        // First thread in a block initializes shared memory
+	//   by loading data from global memory
+	// The quantity of data loaded is determined by
         if (threadIdx.x == 0) {
             for (int i = 0; i < elements_per_block; ++i) {
                 a_block[i] = a[i + blockIdx.x*blockDim.x];
@@ -42,26 +47,83 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 
         __syncthreads(); // Wait until all threads in a block reach this point
 
+	// `1ULL`:
+	//     00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000001
+	// `1Ull << BITSIZE` assuming BITSIZE has the value eight,
+	//   shifts the number one from above by eight:
+	//     00000000 00000000 00000000 00000000 00000000 00000000 00000001 00000000
+	// `(1ULL << BITSIZE) - 1`:
+	//     00000000 00000000 00000000 00000000 00000000 00000000 00000000 11111111
         uint64_t base_mask = (1ULL << BITSIZE) - 1;
+
+	// If `BITSIZE` has value eight, then `ELEMENTS_PER_INT` has value "64 divided by `BITSIZE` floored" so eight
+	//   neighboruing threads sharing a uint64 work on neighbouring segments of a uint64
         uint64_t position_within_uint64 = threadIdx.x % ELEMENTS_PER_INT;
+
+	// Shift base_mask
+	//     00000000 00000000 00000000 00000000 00000000 00000000 00000000 11111111
+	//   to the left by `position_within_uint64` times `BITSIZE`
+	//   e.g.                     three          times   eight     so 24
+	//     00000000 00000000 00000000 00000000 11111111 00000000 00000000 00000000
         uint64_t bitmask = base_mask << (position_within_uint64 * BITSIZE);
-        uint64_t a_component, b_component, c_component;
+
+	// Allocate registers for decompressed values
+        uint64_t a_component = 0, b_component = 0, c_component = 0;
         int index_of_uint64_in_array = threadIdx.x/ELEMENTS_PER_INT;
 
         // Extract components
+        // `(y_block[index_of_uint64_in_array] & bitmask)`
+	//       00000000 00000000 00000000 00000000 11111111 00000000 00000000 00000000
+	//     & xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx abcdefgh xxxxxxxx xxxxxxxx xxxxxxxx
+	//     = 00000000 00000000 00000000 00000000 abcdefgh 00000000 00000000 00000000
+        // `(y_block[index_of_uint64_in_array] & bitmask)` assume
+	//    `BITSIZE` has value eight and `position_within_uint64` has value three
+	//       00000000 00000000 00000000 00000000 abcdefgh 00000000 00000000 00000000
+	//       00000000 00000000 00000000 00000000 00000000 00000000 00000000 abcdefgh
         a_component = (a_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
         b_component = (b_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
 
         // Perform addition
+	//       00000000 00000000 00000000 00000000 00000000 00000000 00000000 abcdefgh
+	//     + 00000000 00000000 00000000 00000000 00000000 00000000 00000000 ijklmnop
+	//     = 00000000 00000000 00000000 00000000 00000000 00000000 00000000 qrstuvwz
         c_component = a_component + b_component;
 
-        // Compress
-        atomicOr((unsigned long long*)&c_block[index_of_uint64_in_array], 
-         (unsigned long long)(c_component << (position_within_uint64 * BITSIZE)));
 
-        __syncthreads(); // Wait until all threads in a block reach this point
-        
-        // First thread in a block copies back
+	// Compress and store in shared memory
+	//   assume `BITSIZE` has value eight and `position_within_uint64` has value three
+	//       00000000 00000000 00000000 00000000 00000000 00000000 00000000 qrstuvwz
+	//       00000000 00000000 00000000 00000000 qrstuvwz 00000000 00000000 00000000
+	// https://docs.nvidia.com/cuda/cuda-c-programming-guide/#atomicor
+	//   "The 64-bit version of atomicOr() is only supported by devices of compute capability 5.0 and higher."
+	// the RTX A4000 has compute capability 8.6
+	//   according to https://developer.nvidia.com/cuda-gpus
+	// and sm_xx Version can be read from
+	//   https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
+	// TODO problem is with the atomicOr
+/*
+        atomicOr(
+	  (unsigned long long*)&c_block[index_of_uint64_in_array], 
+          (unsigned long long)(c_component << (position_within_uint64 * BITSIZE))
+	);
+*/
+	// https://docs.nvidia.com/cuda/cuda-c-programming-guide/#nv-atomic-fetch-or-and-nv-atomic-or
+	//   https://en.cppreference.com/w/cpp/atomic/memory_order
+	//   https://nvidia.github.io/cccl/libcudacxx/extended_api/memory_model.html#thread-scopes
+        __nv_atomic_or(
+	    &c_block[index_of_uint64_in_array],
+            (c_component << (position_within_uint64 * BITSIZE)),
+	    std::memory_order_acq_rel,
+	    cuda::thread_scope_block
+	);
+
+	// the following line works thoug it always favors the third thread
+	// c_block[index_of_uint64_in_array] = c_component << (position_within_uint64 * BITSIZE);
+
+
+	__syncthreads(); // Wait until all threads in a block reach this point
+
+        // First thread in a block writes
         if (threadIdx.x == 0) {
             for (int i = 0; i < elements_per_block; ++i) {
                 c[i + blockIdx.x*blockDim.x] = c_block[i];
@@ -74,18 +136,18 @@ uint64_t generate_random_64bit() {
     uint64_t high = (uint64_t)rand(); // Generate the high 32 bits
     uint64_t low = (uint64_t)rand();  // Generate the low 32 bits
     uint64_t result = (high << 32) | low;
-    
+
     // Calculate mask for one element of given BITSIZE
     // Example: for 4-bit elements, single_element_mask = 0x0F
     uint64_t single_element_mask = (1ULL << (BITSIZE - 1)) - 1;
-    
+
     // Calculate full mask for all elements
     uint64_t full_mask = 0;
-    
+
     for (int i = 0; i < ELEMENTS_PER_INT; i++) {
         full_mask |= (single_element_mask << (i * BITSIZE));
     }
-    
+
     // Apply mask to ensure MSB is 0 for each element of given BITSIZE
     return result & full_mask;
 }
@@ -140,6 +202,8 @@ int main (int argc, char **argv){
     uint64_t* b_host = new uint64_t[num_elements];
     uint64_t* c_host = new uint64_t[num_elements];
     uint64_t* c_comp = new uint64_t[num_elements];
+    uint64_t* a_gpu_dump = new uint64_t[num_elements];
+    uint64_t* b_gpu_dump = new uint64_t[num_elements];
 
 
     // Initialize device data
@@ -220,18 +284,31 @@ int main (int argc, char **argv){
         cudaEventElapsedTime(&tot_time_milliseconds[k], start, stop);
 
         // Copy back result from device to host
-        CUDA_CHECK  ( cudaMemcpy(   c_host,
+        CUDA_CHECK  ( cudaMemcpy(   a_gpu_dump,
+                                    a_device,
+                                    sizeof(uint64_t)*num_elements,
+                                    cudaMemcpyDeviceToHost)
+                    );
+         CUDA_CHECK  ( cudaMemcpy(  b_gpu_dump,
+                                    b_device,
+                                    sizeof(uint64_t)*num_elements,
+                                    cudaMemcpyDeviceToHost)
+                    );
+          CUDA_CHECK  ( cudaMemcpy( c_host,
                                     c_device,
                                     sizeof(uint64_t)*num_elements,
                                     cudaMemcpyDeviceToHost)
                     );
-        
+
         // Confirm that GPU computed correctly
         for (int l = 0; l < num_elements; ++l) {
             if (c_host[l] != c_comp[l]) {
                 printf("Result %d of GPU is not the same as CPU result:\n", l);
                 printf("%llu + %llu = %llu (host)\n", (unsigned long long int)a_host[l], (unsigned long long int)b_host[l], (unsigned long long int)c_comp[l]);
-                printf("%llu + %llu = %llu (device)\n", (unsigned long long int)a_host[l], (unsigned long long int)b_host[l], (unsigned long long int)c_host[l]);
+                printf("%llu + %llu = %llu (device)\n", (unsigned long long int)a_gpu_dump[l], (unsigned long long int)b_gpu_dump[l], (unsigned long long int)c_host[l]);
+
+		print_binary(c_comp[l]);
+		print_binary(c_host[l]);
                 return 1;
             }
         }
