@@ -9,7 +9,7 @@
 
 #define NUM_ITERATIONS_PER_CONFIG 3
 #define BITSIZE 8
-#define ELEMENTS_PER_INT 64 / BITSIZE
+#define COMPONENTS_PER_UINT 64 / BITSIZE
 
 // Dummy kernel to warm up GPU
 __global__ void warmup_kernel()
@@ -19,26 +19,38 @@ __global__ void warmup_kernel()
 
 // Grid-striding kernel for vector add with variable static bit size for all elements in a[i] and b[i]
 __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
-    for (int idx = threadIdx.x + blockIdx.x*blockDim.x;
-         idx < num_elements;
-         idx += blockDim.x*gridDim.x) {
-        
-	// The count of threads in the block a.k.a. `blockDim.x`
-	//   divided by `ELEMENTS_PER_INT` and then floored
-	//   yields the ??? TODO
-        int elements_per_block = blockDim.x/ELEMENTS_PER_INT;
 
-        // Arrays based on number of elements
+    // loop for grid striding
+    //   which is necessary if data is bigger than number of threads on the entire device
+    for (int id = threadIdx.x + blockIdx.x*blockDim.x;
+         id < (num_elements*COMPONENTS_PER_UINT);
+         id += blockDim.x*gridDim.x) { // max_block_size * max_blocks_per_grid_for_max_block_size
+                                       //     1024       *       2*numSMs(RTX A4000)
+                                       //     1024       *       2*48
+                                       //     1024       *       96
+                                       //              98304
+
+        // The count of threads in the block a.k.a. `blockDim.x`
+        //   divided by `COMPONENTS_PER_UINT` and then floored
+        //   yields the count of components per shared uint64 array in a block
+        //
+        //   assume `blockDim.x` having value 32 (1024)
+        //   assume `COMPONENTS_PER_UINT` having value 8
+        //   the `elements_per_shared_uint64_array` would be 4 (128)
+        int elements_per_shared_uint64_array = blockDim.x / COMPONENTS_PER_UINT;
+
+        // Allocate shared memory
         extern __shared__ uint64_t shared_mem[];
         uint64_t* a_block = shared_mem;
-        uint64_t* b_block = &shared_mem[elements_per_block];
-        uint64_t* c_block = &shared_mem[2 * elements_per_block];
+        uint64_t* b_block = &shared_mem[elements_per_shared_uint64_array];
+        uint64_t* c_block = &shared_mem[2 * elements_per_shared_uint64_array];
 
-        // First thread in a block initializes shared memory
-	//   by loading data from global memory
-	// The quantity of data loaded is determined by
+        // First thread in a block...
         if (threadIdx.x == 0) {
-            for (int i = 0; i < elements_per_block; ++i) {
+
+            // ... initializes shared memory
+            //     by loading data from global memory
+            for (int i = 0; i < elements_per_shared_uint64_array; ++i) {
                 a_block[i] = a[i + blockIdx.x*blockDim.x];
                 b_block[i] = b[i + blockIdx.x*blockDim.x];
                 c_block[i] = 0;
@@ -56,32 +68,35 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 	//     00000000 00000000 00000000 00000000 00000000 00000000 00000000 11111111
         uint64_t base_mask = (1ULL << BITSIZE) - 1;
 
-	// If `BITSIZE` has value eight, then `ELEMENTS_PER_INT` has value "64 divided by `BITSIZE` floored" so eight
+	// If `BITSIZE` has value eight, then `COMPONENTS_PER_UINT` has value "64 divided by `BITSIZE` floored" so eight
 	//   neighboruing threads sharing a uint64 work on neighbouring segments of a uint64
-        uint64_t position_within_uint64 = threadIdx.x % ELEMENTS_PER_INT;
+        int position_of_component_within_uint64_in_shared_array = threadIdx.x % COMPONENTS_PER_UINT;
 
 	// Shift base_mask
 	//     00000000 00000000 00000000 00000000 00000000 00000000 00000000 11111111
-	//   to the left by `position_within_uint64` times `BITSIZE`
+	//   to the left by `position_of_component_within_uint64_in_shared_array` times `BITSIZE`
 	//   e.g.                     three          times   eight     so 24
 	//     00000000 00000000 00000000 00000000 11111111 00000000 00000000 00000000
-        uint64_t bitmask = base_mask << (position_within_uint64 * BITSIZE);
+        uint64_t bitmask = base_mask << (position_of_component_within_uint64_in_shared_array * BITSIZE);
 
 	// Allocate registers for decompressed values
-        uint64_t a_component = 0, b_component = 0, c_component = 0;
-        int index_of_uint64_in_array = threadIdx.x/ELEMENTS_PER_INT;
+	//   TODO move this further up to not waste time with allocation here right before saving new values to the components
+        uint64_t a_component = 0;
+	uint64_t b_component = 0;
+        uint64_t c_component = 0;
+        int index_of_uint64_in_shared_array = threadIdx.x / COMPONENTS_PER_UINT;
 
         // Extract components
-        // `(y_block[index_of_uint64_in_array] & bitmask)`
+        // `(y_block[index_of_uint64_in_shared_array] & bitmask)`
 	//       00000000 00000000 00000000 00000000 11111111 00000000 00000000 00000000
 	//     & xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx abcdefgh xxxxxxxx xxxxxxxx xxxxxxxx
 	//     = 00000000 00000000 00000000 00000000 abcdefgh 00000000 00000000 00000000
-        // `(y_block[index_of_uint64_in_array] & bitmask)` assume
-	//    `BITSIZE` has value eight and `position_within_uint64` has value three
+        // `(y_block[index_of_uint64_in_shared_array] & bitmask)` assume
+	//    `BITSIZE` has value eight and `position_of_component_within_uint64_in_shared_array` has value three
 	//       00000000 00000000 00000000 00000000 abcdefgh 00000000 00000000 00000000
 	//       00000000 00000000 00000000 00000000 00000000 00000000 00000000 abcdefgh
-        a_component = (a_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
-        b_component = (b_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
+        a_component = (a_block[index_of_uint64_in_shared_array] & bitmask) >> (position_of_component_within_uint64_in_shared_array * BITSIZE);
+        b_component = (b_block[index_of_uint64_in_shared_array] & bitmask) >> (position_of_component_within_uint64_in_shared_array * BITSIZE);
 
         // Perform addition
 	//       00000000 00000000 00000000 00000000 00000000 00000000 00000000 abcdefgh
@@ -89,11 +104,16 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 	//     = 00000000 00000000 00000000 00000000 00000000 00000000 00000000 qrstuvwz
         c_component = a_component + b_component;
 
+	__syncthreads(); // Wait until all threads in a block reach this point
 
 	// Compress and store in shared memory
-	//   assume `BITSIZE` has value eight and `position_within_uint64` has value three
+	//   assume `BITSIZE` has value eight and `position_of_component_within_uint64_in_shared_array` has value three
 	//       00000000 00000000 00000000 00000000 00000000 00000000 00000000 qrstuvwz
 	//       00000000 00000000 00000000 00000000 qrstuvwz 00000000 00000000 00000000
+	// then e.g. the atomicOr(...) to write to the uint_64_t that holds the compressed values
+	//       xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx 00000000 xxxxxxxx xxxxxxxx xxxxxxxx
+	//    OR 00000000 00000000 00000000 00000000 qrstuvwz 00000000 00000000 00000000
+	//     = xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx qrstuvwz xxxxxxxx xxxxxxxx xxxxxxxx
 	// https://docs.nvidia.com/cuda/cuda-c-programming-guide/#atomicor
 	//   "The 64-bit version of atomicOr() is only supported by devices of compute capability 5.0 and higher."
 	// the RTX A4000 has compute capability 8.6
@@ -103,29 +123,39 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 	// TODO problem is with the atomicOr
 /*
         atomicOr(
-	  (unsigned long long*)&c_block[index_of_uint64_in_array], 
-          (unsigned long long)(c_component << (position_within_uint64 * BITSIZE))
+	  (unsigned long long*)&c_block[index_of_uint64_in_shared_array],
+          (unsigned long long)(c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE))
 	);
-*/
+
+	// should in our case write the same value as atomicOr(...)
+        atomicAdd(
+	  (unsigned long long*)&c_block[index_of_uint64_in_shared_array],
+          (unsigned long long)(c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE))
+	);
+/*
 	// https://docs.nvidia.com/cuda/cuda-c-programming-guide/#nv-atomic-fetch-or-and-nv-atomic-or
 	//   https://en.cppreference.com/w/cpp/atomic/memory_order
 	//   https://nvidia.github.io/cccl/libcudacxx/extended_api/memory_model.html#thread-scopes
         __nv_atomic_or(
-	    &c_block[index_of_uint64_in_array],
-            (c_component << (position_within_uint64 * BITSIZE)),
+	    &c_block[index_of_uint64_in_shared_array],
+            (c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE)),
 	    std::memory_order_acq_rel,
 	    cuda::thread_scope_block
 	);
+*/
 
 	// the following line works thoug it always favors the third thread
-	// c_block[index_of_uint64_in_array] = c_component << (position_within_uint64 * BITSIZE);
+	if (position_of_component_within_uint64_in_shared_array == 0) {
+	    c_block[index_of_uint64_in_shared_array] = c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE);
+	}
 
 
 	__syncthreads(); // Wait until all threads in a block reach this point
 
-        // First thread in a block writes
+        // First thread in a block reads from shared memory and
+	//   writes to global memory
         if (threadIdx.x == 0) {
-            for (int i = 0; i < elements_per_block; ++i) {
+            for (int i = 0; i < elements_per_shared_uint64_array; ++i) {
                 c[i + blockIdx.x*blockDim.x] = c_block[i];
             }
         }
@@ -144,7 +174,7 @@ uint64_t generate_random_64bit() {
     // Calculate full mask for all elements
     uint64_t full_mask = 0;
 
-    for (int i = 0; i < ELEMENTS_PER_INT; i++) {
+    for (int i = 0; i < COMPONENTS_PER_UINT; i++) {
         full_mask |= (single_element_mask << (i * BITSIZE));
     }
 
@@ -267,7 +297,7 @@ int main (int argc, char **argv){
 
         // Call kernel
         cudaEventRecord(start);
-        add<<<grid_size, block_size, 3*(block_size/ELEMENTS_PER_INT)>>>(a_device, b_device, c_device, num_elements);
+        add<<<grid_size, block_size, 3*(block_size/COMPONENTS_PER_UINT)>>>(a_device, b_device, c_device, num_elements);
         cudaEventRecord(stop);
         error = cudaGetLastError(); // Check for launch errors
         if (error != cudaSuccess) {
