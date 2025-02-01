@@ -7,9 +7,9 @@
 // CUDA Error handler to be placed around all CUDA calls
 #define CUDA_CHECK(cmd) {cudaError_t error = cmd; if(error!=cudaSuccess){printf("<%s>:%i ",__FILE__,__LINE__); printf("[CUDA] Error: %s\n", cudaGetErrorString(error));}}
 
-#define NUM_ITERATIONS_PER_CONFIG 3
+#define NUM_ITERATIONS_PER_CONFIG 1
 #define BITSIZE 8
-#define COMPONENTS_PER_UINT 64 / BITSIZE
+#define COMPONENTS_PER_UINT (int)(64 / BITSIZE)
 
 // Dummy kernel to warm up GPU
 __global__ void warmup_kernel()
@@ -23,8 +23,14 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
     // loop for grid striding
     //   which is necessary if data is bigger than number of threads on the entire device
     // TODO how does this loop actually work?
+    int abbruch =
+	     num_elements*COMPONENTS_PER_UINT // count of threads that will ever run...
+	   / // ...divided by...
+	     blockDim.x; // ...threads per block
     for (int temporal_block_id = blockIdx.x;
-         temporal_block_id < num_elements / gridDim.x;
+         // How many blocks will ever exist to iterate through
+         //   the whole array?
+         temporal_block_id < abbruch;
          temporal_block_id += gridDim.x) { //   max_block_size * max_blocks_per_grid_stride_for_max_block_size
                                                         //      1024        *       2*numSMs(RTX A4000)
                                                         //      1024        *       2*48
@@ -35,6 +41,12 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
                                                         //        256       *       384
                                                         //        128       *       768
                                                         //         64       *      1536
+         //if(temporal_block_id == 0 && threadIdx.x == 0) {
+         //    printf("num_elements=%d\n", num_elements);
+         //    printf("COMPONENTS_PER_UINT=%d\n", COMPONENTS_PER_UINT);
+         //    printf("blockDim.x=%d\n", blockDim.x);
+         //    printf("abbruch=%d\n", abbruch);
+	 //}
 
         // The count of threads in the block a.k.a. `blockDim.x`
         //   divided by `COMPONENTS_PER_UINT` and then floored
@@ -51,14 +63,17 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
         uint64_t* b_block = &shared_mem[elements_per_shared_uint64_array];
         uint64_t* c_block = &shared_mem[2 * elements_per_shared_uint64_array];
 
+
         // First thread in a block...
         if (threadIdx.x == 0) {
 
             // ... initializes shared memory
             //     by loading data from global memory
-            for (int i = 0; i < elements_per_shared_uint64_array; ++i) {
-                a_block[i] = a[i + temporal_block_id];
-                b_block[i] = b[i + temporal_block_id];
+	    int index;
+            for (int i = 0; i < elements_per_shared_uint64_array; i++) {
+		index = i + temporal_block_id*(blockDim.x/COMPONENTS_PER_UINT);
+                a_block[i] = a[index];
+                b_block[i] = b[index];
                 c_block[i] = (uint64_t)0;
             }
         }
@@ -135,46 +150,6 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 	//   according to https://developer.nvidia.com/cuda-gpus
 	// and sm_xx Version can be read from
 	//   https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
-	// TODO problem is with the atomicOr
-	//
-	//   Does shifting to the left automatically introduce zeros
-	//   on the right or can it introduce ones on the right?
-	//   Seemingly it does only introduce zeros to the right.
-/*
-        atomicOr(
-	  (unsigned long long*)&c_block[index_of_uint64_in_shared_array],
-          (unsigned long long)(c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE))
-          //(unsigned long long)9833521311817092772
-          //(unsigned long long)id
-          //(unsigned long long)index_of_uint64_in_shared_array
-          //(unsigned long long)(position_of_component_within_uint64_in_shared_array << (position_of_component_within_uint64_in_shared_array * BITSIZE))
-          //(unsigned long long)(COMPONENTS_PER_UINT << (position_of_component_within_uint64_in_shared_array * BITSIZE))
-	);
-
-	// should in our case write the same value as atomicOr(...)
-        atomicAdd(
-	  (unsigned long long*)&c_block[index_of_uint64_in_shared_array],
-          (unsigned long long)(c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE))
-	);
-
-	// https://docs.nvidia.com/cuda/cuda-c-programming-guide/#nv-atomic-fetch-or-and-nv-atomic-or
-	//   https://en.cppreference.com/w/cpp/atomic/memory_order
-	//   https://nvidia.github.io/cccl/libcudacxx/extended_api/memory_model.html#thread-scopes
-        __nv_atomic_or(
-	    &c_block[index_of_uint64_in_shared_array],
-            (c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE)),
-	    std::memory_order_acq_rel,
-	    cuda::thread_scope_block
-	);
-*/
-
-/*
-	if (position_of_component_within_uint64_in_shared_array == 0) {
-	    c_block[index_of_uint64_in_shared_array] = c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE);
-	}
-*/
-
-
 	// TODO maybe replace by `__threadfence();`
 	__syncthreads(); // Wait until all threads in a block reach this point
 
@@ -192,8 +167,16 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
         // First thread in a block reads from shared memory and
         //   writes to global memory
         if (threadIdx.x == 0) {
+	    int index = 0;
             for (int i = 0; i < elements_per_shared_uint64_array; ++i) {
-                c[i + temporal_block_id] = c_block[i];
+		index = i + temporal_block_id*(blockDim.x/COMPONENTS_PER_UINT);
+	        //printf("%d\tc[%d] =\tc_block[%d] =\t%d\t blockIdx.x=%d\ttemporal_block_id=%d\n",
+		//		index,index,
+		//		i,
+		//		(int)c_block[i],
+		//		blockIdx.x,
+		//		temporal_block_id);
+                c[index] = c_block[i];
             }
         }
     }
@@ -334,7 +317,7 @@ int main (int argc, char **argv){
 
         // Call kernel
         cudaEventRecord(start);
-        add<<<grid_size, block_size, 3*(block_size/COMPONENTS_PER_UINT)>>>(a_device, b_device, c_device, num_elements);
+        add<<<grid_size, block_size, 3*(block_size/COMPONENTS_PER_UINT)*sizeof(uint64_t)>>>(a_device, b_device, c_device, num_elements);
         cudaEventRecord(stop);
         error = cudaGetLastError(); // Check for launch errors
         if (error != cudaSuccess) {
