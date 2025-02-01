@@ -26,45 +26,52 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_uint64_elemen
     uint64_t* b_block = &shared_mem[uint64_elements_per_block];
     uint64_t* c_block = &shared_mem[2 * uint64_elements_per_block];
 
-    //printf("uint64_elements_per_block = %d\n", uint64_elements_per_block);
+    for (int grid_iteration = 0;
+         grid_iteration < (num_uint64_elements);
+         grid_iteration += (blockDim.x*gridDim.x)/ELEMENTS_PER_INT) {
+            // First thread in a block initializes memory
+            if (threadIdx.x == 0) {
+                //printf("(num_uint64_elements*ELEMENTS_PER_INT) = %d\n", (num_uint64_elements*ELEMENTS_PER_INT));
+                //printf("grid_iteration = %d on blockID %d\n", grid_iteration, blockIdx.x);
+                //printf("blockDim = %d\n", blockDim.x);
+                //printf("gridDim = %d\n", gridDim.x);
+                for (int i = 0; i < uint64_elements_per_block; ++i) {
+                    int global_thread_number = i + blockIdx.x*uint64_elements_per_block + grid_iteration;
+                    //printf("global_thread_number = %d\n", global_thread_number);
+                    a_block[i] = a[global_thread_number];
+                    b_block[i] = b[global_thread_number];
+                    c_block[i] = 0;
+                }
+            }
 
-    // First thread in a block initializes memory
-    if (threadIdx.x == 0) {
-        for (int i = 0; i < uint64_elements_per_block; ++i) {
-            int global_thread_number = i + blockIdx.x*uint64_elements_per_block;
-            a_block[i] = a[global_thread_number];
-            b_block[i] = b[global_thread_number];
-            c_block[i] = 0;
-        }
-    }
+            __syncthreads(); // Wait until all threads in a block reach this point
 
-    __syncthreads(); // Wait until all threads in a block reach this point
+            uint64_t base_mask = (1ULL << BITSIZE) - 1;
+            uint64_t position_within_uint64 = threadIdx.x % ELEMENTS_PER_INT;
+            uint64_t bitmask = base_mask << (position_within_uint64 * BITSIZE);
+            uint64_t a_component, b_component, c_component;
+            int index_of_uint64_in_array = threadIdx.x/ELEMENTS_PER_INT;
 
-    uint64_t base_mask = (1ULL << BITSIZE) - 1;
-    uint64_t position_within_uint64 = threadIdx.x % ELEMENTS_PER_INT;
-    uint64_t bitmask = base_mask << (position_within_uint64 * BITSIZE);
-    uint64_t a_component, b_component, c_component;
-    int index_of_uint64_in_array = threadIdx.x/ELEMENTS_PER_INT;
+            // Extract components
+            a_component = (a_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
+            b_component = (b_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
 
-    // Extract components
-    a_component = (a_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
-    b_component = (b_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
+            // Perform addition
+            c_component = a_component + b_component;
 
-    // Perform addition
-    c_component = a_component + b_component;
+            // Compress
+            atomicOr((unsigned long long*)&c_block[index_of_uint64_in_array], 
+                (unsigned long long)(c_component << (position_within_uint64 * BITSIZE)));
 
-    // Compress
-    atomicOr((unsigned long long*)&c_block[index_of_uint64_in_array], 
-        (unsigned long long)(c_component << (position_within_uint64 * BITSIZE)));
-
-    __syncthreads(); // Wait until all threads in a block reach this point
-    
-    // First thread in a block copies back
-    if (threadIdx.x == 0) {
-        for (int i = 0; i < uint64_elements_per_block; ++i) {
-            int global_thread_number = i + blockIdx.x*uint64_elements_per_block;
-            c[global_thread_number] = c_block[i];
-        }
+            __syncthreads(); // Wait until all threads in a block reach this point
+            
+            // First thread in a block copies back
+            if (threadIdx.x == 0) {
+                for (int i = 0; i < uint64_elements_per_block; ++i) {
+                    int global_thread_number = i + blockIdx.x*uint64_elements_per_block + grid_iteration;
+                    c[global_thread_number] = c_block[i];
+                }
+            }
     }
 }
 
