@@ -24,12 +24,17 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
     //   which is necessary if data is bigger than number of threads on the entire device
     // TODO how does this loop actually work?
     for (int temporal_block_id = blockIdx.x;
-         temporal_block_id < num_elements;
-         temporal_block_id += blockDim.x * gridDim.x) { // max_block_size * max_blocks_per_grid_for_max_block_size
-                                                        //     1024       *       2*numSMs(RTX A4000)
-                                                        //     1024       *       2*48
-                                                        //     1024       *       96
-                                                        //              98304
+         temporal_block_id < num_elements / gridDim.x;
+         temporal_block_id += gridDim.x) { //   max_block_size * max_blocks_per_grid_stride_for_max_block_size
+                                                        //      1024        *       2*numSMs(RTX A4000)
+                                                        //      1024        *       2*48
+                                                        //      1024        *       96
+                                                        //              98304    = max_thread_on_grid
+                                                        // other_block_size * other_blocks_per_grid_stride_for_other_block_size
+                                                        //        512       *       192
+                                                        //        256       *       384
+                                                        //        128       *       768
+                                                        //         64       *      1536
 
         // The count of threads in the block a.k.a. `blockDim.x`
         //   divided by `COMPONENTS_PER_UINT` and then floored
