@@ -22,13 +22,14 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 
     // loop for grid striding
     //   which is necessary if data is bigger than number of threads on the entire device
-    for (int id = threadIdx.x + blockIdx.x*blockDim.x;
-         id < (num_elements*COMPONENTS_PER_UINT);
-         id += blockDim.x*gridDim.x) { // max_block_size * max_blocks_per_grid_for_max_block_size
-                                       //     1024       *       2*numSMs(RTX A4000)
-                                       //     1024       *       2*48
-                                       //     1024       *       96
-                                       //              98304
+    // TODO how does this loop actually work?
+    for (int temporal_block_id = blockIdx.x;
+         temporal_block_id < num_elements;
+         temporal_block_id += blockDim.x * gridDim.x) { // max_block_size * max_blocks_per_grid_for_max_block_size
+                                                        //     1024       *       2*numSMs(RTX A4000)
+                                                        //     1024       *       2*48
+                                                        //     1024       *       96
+                                                        //              98304
 
         // The count of threads in the block a.k.a. `blockDim.x`
         //   divided by `COMPONENTS_PER_UINT` and then floored
@@ -51,9 +52,9 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
             // ... initializes shared memory
             //     by loading data from global memory
             for (int i = 0; i < elements_per_shared_uint64_array; ++i) {
-                a_block[i] = a[i + blockIdx.x*blockDim.x];
-                b_block[i] = b[i + blockIdx.x*blockDim.x];
-                c_block[i] = 0;
+                a_block[i] = a[i + temporal_block_id];
+                b_block[i] = b[i + temporal_block_id];
+                c_block[i] = (uint64_t)0;
             }
         }
 
@@ -80,7 +81,9 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
         uint64_t bitmask = base_mask << (position_of_component_within_uint64_in_shared_array * BITSIZE);
 
 	// Allocate registers for decompressed values
-	//   TODO move this further up to not waste time with allocation here right before saving new values to the components
+	//   TODO maybe move this further up to not waste time with allocation here right before saving new values to the components
+	//   NOTODO can it be that a register is not big enough to
+	//     to store a uint64_t? - No.
         uint64_t a_component = 0;
 	uint64_t b_component = 0;
         uint64_t c_component = 0;
@@ -91,10 +94,11 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 	//       00000000 00000000 00000000 00000000 11111111 00000000 00000000 00000000
 	//     & xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx abcdefgh xxxxxxxx xxxxxxxx xxxxxxxx
 	//     = 00000000 00000000 00000000 00000000 abcdefgh 00000000 00000000 00000000
-        // `(y_block[index_of_uint64_in_shared_array] & bitmask)` assume
+        // `(y_block[index_of_uint64_in_shared_array] & bitmask) >> (position_of_component_within_uint64_in_shared_array * BITSIZE)` assume
 	//    `BITSIZE` has value eight and `position_of_component_within_uint64_in_shared_array` has value three
 	//       00000000 00000000 00000000 00000000 abcdefgh 00000000 00000000 00000000
 	//       00000000 00000000 00000000 00000000 00000000 00000000 00000000 abcdefgh
+	// TODO bit shift to the right `>>` introduces only zeros on the left?
         a_component = (a_block[index_of_uint64_in_shared_array] & bitmask) >> (position_of_component_within_uint64_in_shared_array * BITSIZE);
         b_component = (b_block[index_of_uint64_in_shared_array] & bitmask) >> (position_of_component_within_uint64_in_shared_array * BITSIZE);
 
@@ -103,10 +107,16 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 	//     + 00000000 00000000 00000000 00000000 00000000 00000000 00000000 ijklmnop
 	//     = 00000000 00000000 00000000 00000000 00000000 00000000 00000000 qrstuvwz
         c_component = a_component + b_component;
+        //c_component = 255;
+        //c_component = 127;
+        //c_component = 1;
+        //c_component = c_component % 255;
+        //c_component = b_component;
 
+	// TODO maybe replace by `__threadfence();`
 	__syncthreads(); // Wait until all threads in a block reach this point
 
-	// Compress and store in shared memory
+	// Each thread compresses and stores it's c_component into shared memory
 	//   assume `BITSIZE` has value eight and `position_of_component_within_uint64_in_shared_array` has value three
 	//       00000000 00000000 00000000 00000000 00000000 00000000 00000000 qrstuvwz
 	//       00000000 00000000 00000000 00000000 qrstuvwz 00000000 00000000 00000000
@@ -121,10 +131,19 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 	// and sm_xx Version can be read from
 	//   https://arnon.dk/matching-sm-architectures-arch-and-gencode-for-various-nvidia-cards/
 	// TODO problem is with the atomicOr
+	//
+	//   Does shifting to the left automatically introduce zeros
+	//   on the right or can it introduce ones on the right?
+	//   Seemingly it does only introduce zeros to the right.
 /*
         atomicOr(
 	  (unsigned long long*)&c_block[index_of_uint64_in_shared_array],
           (unsigned long long)(c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE))
+          //(unsigned long long)9833521311817092772
+          //(unsigned long long)id
+          //(unsigned long long)index_of_uint64_in_shared_array
+          //(unsigned long long)(position_of_component_within_uint64_in_shared_array << (position_of_component_within_uint64_in_shared_array * BITSIZE))
+          //(unsigned long long)(COMPONENTS_PER_UINT << (position_of_component_within_uint64_in_shared_array * BITSIZE))
 	);
 
 	// should in our case write the same value as atomicOr(...)
@@ -132,7 +151,7 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 	  (unsigned long long*)&c_block[index_of_uint64_in_shared_array],
           (unsigned long long)(c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE))
 	);
-/*
+
 	// https://docs.nvidia.com/cuda/cuda-c-programming-guide/#nv-atomic-fetch-or-and-nv-atomic-or
 	//   https://en.cppreference.com/w/cpp/atomic/memory_order
 	//   https://nvidia.github.io/cccl/libcudacxx/extended_api/memory_model.html#thread-scopes
@@ -144,19 +163,38 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
 	);
 */
 
-	// the following line works thoug it always favors the third thread
+/*
 	if (position_of_component_within_uint64_in_shared_array == 0) {
 	    c_block[index_of_uint64_in_shared_array] = c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE);
 	}
+*/
 
 
+	// TODO maybe replace by `__threadfence();`
 	__syncthreads(); // Wait until all threads in a block reach this point
 
+	// TODO LoL that is so god damn inefficient
+	//   the idea that threads in one grid-stride
+	//   want to write to the same uint64_t is
+	//   absoloutely not ideal
+	for (int i = 0; i < COMPONENTS_PER_UINT; i++) {
+	    if (i == position_of_component_within_uint64_in_shared_array) {
+                // atomic or blocks all threads in the entire block
+                //   TODO make blocksize smaller
+                atomicOr(
+                  (unsigned long long*)&c_block[index_of_uint64_in_shared_array],
+                  (unsigned long long)(c_component << (position_of_component_within_uint64_in_shared_array * BITSIZE))
+                );
+	    }
+            __syncthreads(); // Wait until all threads in a block reach this point
+	}
+        __syncthreads(); // Wait until all threads in a block reach this point
+
         // First thread in a block reads from shared memory and
-	//   writes to global memory
+        //   writes to global memory
         if (threadIdx.x == 0) {
             for (int i = 0; i < elements_per_shared_uint64_array; ++i) {
-                c[i + blockIdx.x*blockDim.x] = c_block[i];
+                c[i + temporal_block_id] = c_block[i];
             }
         }
     }
