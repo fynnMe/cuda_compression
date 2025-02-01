@@ -8,8 +8,8 @@
 #define CUDA_CHECK(cmd) {cudaError_t error = cmd; if(error!=cudaSuccess){printf("<%s>:%i ",__FILE__,__LINE__); printf("[CUDA] Error: %s\n", cudaGetErrorString(error));}}
 
 #define NUM_ITERATIONS_PER_CONFIG 3
-#define BITSIZE 11
-#define ELEMENTS_PER_INT 64 / BITSIZE
+#define BITSIZE 8
+#define ELEMENTS_PER_INT (64 / BITSIZE)
 
 // Dummy kernel to warm up GPU
 __global__ void warmup_kernel()
@@ -18,54 +18,58 @@ __global__ void warmup_kernel()
 }
 
 // Grid-striding kernel for vector add with variable static bit size for all elements in a[i] and b[i]
-__global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_elements) {
-    for (int idx = threadIdx.x + blockIdx.x*blockDim.x;
-         idx < num_elements;
-         idx += blockDim.x*gridDim.x) {
-        
-        // Arrays based on number of elements
-        int elements_per_block = blockDim.x/ELEMENTS_PER_INT;
-        extern __shared__ uint64_t shared_mem[];
-        uint64_t* a_block = shared_mem;
-        uint64_t* b_block = &shared_mem[elements_per_block];
-        uint64_t* c_block = &shared_mem[2 * elements_per_block];
+__global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_uint64_elements) {
+    // Arrays based on number of elements
+    int uint64_elements_per_block = blockDim.x/ELEMENTS_PER_INT;
+    extern __shared__ uint64_t shared_mem[];
+    uint64_t* a_block = shared_mem;
+    uint64_t* b_block = &shared_mem[uint64_elements_per_block];
+    uint64_t* c_block = &shared_mem[2 * uint64_elements_per_block];
 
+    //printf("uint64_elements_per_block = %d\n", uint64_elements_per_block);
 
-        // First thread in a block initializes memory
-        if (threadIdx.x == 0) {
-            for (int i = 0; i < elements_per_block; ++i) {
-                a_block[i] = a[i + blockIdx.x*blockDim.x];
-                b_block[i] = b[i + blockIdx.x*blockDim.x];
-                c_block[i] = 0;
+    // First thread in a block initializes memory
+    if (threadIdx.x == 0) {
+        for (int i = 0; i < uint64_elements_per_block; ++i) {
+            int global_thread_number = i + blockIdx.x*uint64_elements_per_block;
+            if(global_thread_number >= num_uint64_elements){
+                break;
             }
+            a_block[i] = a[global_thread_number];
+            b_block[i] = b[global_thread_number];
+            c_block[i] = 0;
         }
+    }
 
-        __syncthreads(); // Wait until all threads in a block reach this point
+    __syncthreads(); // Wait until all threads in a block reach this point
 
-        uint64_t base_mask = (1ULL << BITSIZE) - 1;
-        uint64_t position_within_uint64 = threadIdx.x % ELEMENTS_PER_INT;
-        uint64_t bitmask = base_mask << (position_within_uint64 * BITSIZE);
-        uint64_t a_component, b_component, c_component;
-        int index_of_uint64_in_array = threadIdx.x/ELEMENTS_PER_INT;
+    uint64_t base_mask = (1ULL << BITSIZE) - 1;
+    uint64_t position_within_uint64 = threadIdx.x % ELEMENTS_PER_INT;
+    uint64_t bitmask = base_mask << (position_within_uint64 * BITSIZE);
+    uint64_t a_component, b_component, c_component;
+    int index_of_uint64_in_array = threadIdx.x/ELEMENTS_PER_INT;
 
-        // Extract components
-        a_component = (a_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
-        b_component = (b_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
+    // Extract components
+    a_component = (a_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
+    b_component = (b_block[index_of_uint64_in_array] & bitmask) >> (position_within_uint64 * BITSIZE);
 
-        // Perform addition
-        c_component = a_component + b_component;
+    // Perform addition
+    c_component = a_component + b_component;
 
-        // Compress
-        atomicOr((unsigned long long*)&c_block[index_of_uint64_in_array], 
-         (unsigned long long)(c_component << (position_within_uint64 * BITSIZE)));
+    // Compress
+    atomicOr((unsigned long long*)&c_block[index_of_uint64_in_array], 
+        (unsigned long long)(c_component << (position_within_uint64 * BITSIZE)));
 
-        __syncthreads(); // Wait until all threads in a block reach this point
-        
-        // First thread in a block copies back
-        if (threadIdx.x == 0) {
-            for (int i = 0; i < elements_per_block; ++i) {
-                c[i + blockIdx.x*blockDim.x] = c_block[i];
+    __syncthreads(); // Wait until all threads in a block reach this point
+    
+    // First thread in a block copies back
+    if (threadIdx.x == 0) {
+        for (int i = 0; i < uint64_elements_per_block; ++i) {
+            int global_thread_number = i + blockIdx.x*uint64_elements_per_block;
+            if(global_thread_number >= num_uint64_elements){
+                break;
             }
+            c[global_thread_number] = c_block[i];
         }
     }
 }
@@ -203,7 +207,7 @@ int main (int argc, char **argv){
 
         // Call kernel
         cudaEventRecord(start);
-        add<<<grid_size, block_size, 3*(block_size/ELEMENTS_PER_INT)>>>(a_device, b_device, c_device, num_elements);
+        add<<<grid_size, block_size, 3*(block_size/ELEMENTS_PER_INT)*sizeof(uint64_t)>>>(a_device, b_device, c_device, num_elements);
         cudaEventRecord(stop);
         error = cudaGetLastError(); // Check for launch errors
         if (error != cudaSuccess) {
