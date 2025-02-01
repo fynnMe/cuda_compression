@@ -32,9 +32,6 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_uint64_elemen
     if (threadIdx.x == 0) {
         for (int i = 0; i < uint64_elements_per_block; ++i) {
             int global_thread_number = i + blockIdx.x*uint64_elements_per_block;
-            if(global_thread_number >= num_uint64_elements){
-                break;
-            }
             a_block[i] = a[global_thread_number];
             b_block[i] = b[global_thread_number];
             c_block[i] = 0;
@@ -66,9 +63,6 @@ __global__ void add(uint64_t *a, uint64_t *b, uint64_t *c, int num_uint64_elemen
     if (threadIdx.x == 0) {
         for (int i = 0; i < uint64_elements_per_block; ++i) {
             int global_thread_number = i + blockIdx.x*uint64_elements_per_block;
-            if(global_thread_number >= num_uint64_elements){
-                break;
-            }
             c[global_thread_number] = c_block[i];
         }
     }
