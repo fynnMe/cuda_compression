@@ -3,13 +3,15 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 
 # Read the CSV file
-df = pd.read_csv('data_uncompressed_kernel.csv', sep=';')
+df = pd.read_csv('data_compressed_kernel.csv', sep=';')
 
-# Calculate throughput (MB/s)
-num_elements_per_array = 134217728 # TODO hardcoded here but not in uncompressed.cu
+# Filter for only 134217728 elements and keep first occurrence of duplicates
+df = df[df['array_size'] == 134217728].drop_duplicates(subset=['block_size', 'grid_size'], keep='first')
+
+# Calculate throughput (GB/s)
 bytes_per_elements = 8
 num_arrays = 3
-bytes_processed = num_elements_per_array * bytes_per_elements * num_arrays
+bytes_processed = 134217728 * bytes_per_elements * num_arrays
 gigabytes_processed = bytes_processed / (1024 * 1024 * 1024)  # Convert to GB
 df['throughput'] = gigabytes_processed / (df['runtime'] / 1000)  # GB/s
 
@@ -33,7 +35,7 @@ sns.heatmap(pivot_table,
             )
 
 # Customize the plot
-plt.title('CUDA Kernel Performance: Block Size vs Grid Size')
+plt.title('Compressed CUDA Kernel Performance: Block Size vs Grid Size\n(Array of 1 GiB Size)')
 plt.xlabel('Grid Size')
 plt.ylabel('Block Size')
 
@@ -44,7 +46,7 @@ plt.xticks(rotation=45)
 plt.tight_layout()
 
 # Save the plot
-plt.savefig('uncompressed_configs.png', dpi=500, bbox_inches='tight')
+plt.savefig('compressed_configs.png', dpi=500, bbox_inches='tight')
 
 # Show the plot
 plt.show()
