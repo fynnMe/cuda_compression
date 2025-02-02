@@ -1,5 +1,7 @@
 uncompressed
 compressed
+compressed_finer_granularity
 *.csv
 *.png
+*.txt
 virtualenvironment_python/
