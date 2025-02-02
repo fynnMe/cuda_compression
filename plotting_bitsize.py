@@ -33,14 +33,14 @@ plt.plot(filtered_data['bit_size'], speedup_optimal, 'r:',
 # Add labels and title
 plt.xlabel('Bit Size')
 plt.ylabel('Speedup')
-plt.title(f'Speedup vs Static Bit Size of Elements in uint64 \nGrid Size: {grid_size}, Block Size: {block_size}')
+plt.title(f'Naive Compressed Kernel Speedup vs Static Bit Size of Elements in uint64 \nGrid Size: {grid_size}, Block Size: {block_size}')
 
-# Set limits
-# plt.ylim([0, 13])  # This is the correct way to set the lower limit
-# plt.xlim(1, plt.xlim()[1])  # This is the correct way to set the lower limit
+# Uncomment to zoom in
+plt.ylim([0, 13])
 
 # Add grid and legend
 plt.grid(True, linestyle='--', alpha=0.7)
+plt.legend()
 
 # Save the plot
 plt.savefig('speedup_vs_bitsize.png', dpi=500, bbox_inches='tight')
