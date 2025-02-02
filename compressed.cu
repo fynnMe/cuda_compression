@@ -8,8 +8,10 @@
 #define CUDA_CHECK(cmd) {cudaError_t error = cmd; if(error!=cudaSuccess){printf("<%s>:%i ",__FILE__,__LINE__); printf("[CUDA] Error: %s\n", cudaGetErrorString(error));}}
 
 #define NUM_ITERATIONS_PER_CONFIG 3
-#define BITSIZE 11
-#define ELEMENTS_PER_INT 64 / BITSIZE
+#ifndef BITSIZE
+#define BITSIZE 8  // default fallback value
+#endif
+#define ELEMENTS_PER_INT (64 / BITSIZE)
 
 // Dummy kernel to warm up GPU
 __global__ void warmup_kernel()
@@ -103,7 +105,7 @@ int main (int argc, char **argv){
     long size = ftell(csv_file);
     if (size == 0) {
         // File is empty, write header
-        fprintf(csv_file, "array_size;block_size;grid_size;runtime\n");
+        fprintf(csv_file, "bit_size;array_size;block_size;grid_size;runtime\n");
     }
 
     // Rename input
@@ -207,10 +209,10 @@ int main (int argc, char **argv){
     avg_time_milliseconds = avg_time_milliseconds / NUM_ITERATIONS_PER_CONFIG;
 
     // Print average runtime
-    printf("num_elements: %d, block size: %d, grid_size: %d, runtime: %.6fms\n", num_elements, block_size, grid_size, avg_time_milliseconds);
+    printf("num_elements (bitsize: %d): %d, block size: %d, grid_size: %d, runtime: %.6fms\n", BITSIZE, num_elements, block_size, grid_size, avg_time_milliseconds);
 
     // Add csv data entries
-    fprintf(csv_file, "%d;%d;%d;%.6f\n", num_elements, block_size, grid_size, avg_time_milliseconds);
+    fprintf(csv_file, "%d;%d;%d;%d;%.6f\n", BITSIZE, num_elements, block_size, grid_size, avg_time_milliseconds);
 
     // free memory on GPU
     CUDA_CHECK( cudaFree(a_device) );
