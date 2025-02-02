@@ -8,12 +8,12 @@ df = pd.read_csv('data_compressed_kernel.csv', sep=';')
 # Filter for only 134217728 elements and keep first occurrence of duplicates
 df = df[df['array_size'] == 134217728].drop_duplicates(subset=['block_size', 'grid_size'], keep='first')
 
-# Calculate throughput (GB/s)
+# Calculate throughput (GiB/s)
 bytes_per_elements = 8
 num_arrays = 3
 bytes_processed = 134217728 * bytes_per_elements * num_arrays
-gigabytes_processed = bytes_processed / (1024 * 1024 * 1024)  # Convert to GB
-df['throughput'] = gigabytes_processed / (df['runtime'] / 1000)  # GB/s
+gigabytes_processed = bytes_processed / (1024 * 1024 * 1024)  # Convert to GiB
+df['throughput'] = gigabytes_processed / (df['runtime'] / 1000)  # GiB/s
 
 # Create a pivot table for the heatmap with throughput
 pivot_table = df.pivot(index='block_size',
@@ -31,11 +31,11 @@ sns.heatmap(pivot_table,
             annot=True,  # Show values in cells
             fmt='.2f',   # Float with 2 decimal places
             cmap='YlOrRd',  # Yellow to Orange to Red colormap
-            cbar_kws={'label': 'Throughput (GB/s)'}
+            cbar_kws={'label': 'Throughput (GiB/s)'}
             )
 
 # Customize the plot
-plt.title('Compressed CUDA Kernel Performance: Block Size vs Grid Size\n(Array of 1 GiB Size)')
+plt.title('Naive Compressed CUDA Kernel Performance: Block Size vs Grid Size\n(Arrays of 1 GiB Size Each)')
 plt.xlabel('Grid Size')
 plt.ylabel('Block Size')
 
