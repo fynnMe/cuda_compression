@@ -22,7 +22,8 @@ filtered_data = data[
 array_sizes_bytes = filtered_data['array_size'] * 8
 
 # Calculate throughput (GB/s)
-gigabytes_processed = array_sizes_bytes / (1024 * 1024 * 1024)
+num_arrays = 3
+gigabytes_processed = (array_sizes_bytes * num_arrays) / (1024 * 1024 * 1024)
 throughput = gigabytes_processed / (filtered_data['runtime'] / 1000)
 
 # Create the plot
@@ -32,8 +33,8 @@ plt.plot(array_sizes_bytes, throughput, 'bo-',
 
 # Add labels and title
 plt.xlabel('Array Size (bytes)')
-plt.ylabel('Throughput (GB/s)')
-plt.title(f'Memory Throughput vs Array Size\nGrid Size: {grid_size}, Block Size: {block_size}')
+plt.ylabel('Throughput (GiB/s)')
+plt.title(f'Uncompressed Kernel Memory Throughput vs Array Size\nGrid Size: {grid_size}, Block Size: {block_size}')
 
 # Add grid and legend
 plt.grid(True, linestyle='--', alpha=0.7)
