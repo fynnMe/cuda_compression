@@ -2,7 +2,7 @@
 \usepackage{listings}
 \usepackage{url}
 
-\title{Cuda Kompression - Task 1}
+\title{GPU/CUDA meets Database Systems}
 \author{Fynn Meffert \and Theo Reichert}
 \date{\today}
 \begin{document}
@@ -10,107 +10,143 @@
 \frame{\titlepage}
 
 \begin{frame}
-    \frametitle{Was haben wir gemacht}
-    \begin{itemize}
-        \item generieren 1 Gigabyte Daten
-        \item kopieren Daten auf GPU, berechnen, kopieren zum Host
-        \item berechne Daten auf Host
-        \item Ergebnisse von Host und GPU sind gleich
-     \end{itemize}
+    \frametitle{Problem}
+    query processing on GPU is heavily Memory bound
+    % nvidia profiler screenshot
 \end{frame}
 
 \begin{frame}
-    \frametitle{Was haben wir gemacht}
+    \frametitle{Task}
     \begin{itemize}
-        \item verschieden Cuda Configs
-              berechne dreimal mit einer Cuda Config jeweils unterschiedlichen Daten
-              um Durchschnitt zu bilden
+        \item compress data in global memory with "zero supression"
+          (removes leading zeros)
+        \item more logical data in one e.g. `uint\_64`
+        \item incorporate `shared memory` and `atomic` operations
+        \item measure throughput of program with different cuda configs
+          and omprove approach
+     \end{itemize}
+\end{frame}
+
+
+\begin{frame}
+    \frametitle{Algorithmic scetch}
+    \begin{itemize}
+        \item load array of `uint\_64` from global memory
+        \item decompress logical data from `uint\_64`
+        \item do given operation
+        \item compress logical data into `uint\_64`s
+        \item write array of `uint\_64` to global memory
+     \end{itemize}
+\end{frame}
+
+\begin{frame}[fragile]
+    \frametitle{Algorithmic scetch}
+    \framesubtitle{compression}
+    \begin{lstlisting}
+uncompressed example
+A: 00000000 0aaaaaaa
+B: 00000000 0bbbbbbb
+
+compressed example
+C: 0bbbbbbb 0aaaaaaa
+    \end{lstlisting}
+\end{frame}
+
+
+\begin{frame}
+    \frametitle{Measurement}
+    \begin{itemize}
+        \item average throughput of program started with different cuda configs
          \begin{figure}
              \centering
-             \includegraphics[width=0.8\linewidth]{cuda_configs.jpg} % Replace with your image file
+             \includegraphics[width=0.8\linewidth]{uncompressed_configs.png} % Replace with your image file
+             \includegraphics[width=0.5\linewidth]{uncompressed_1GiB_1024_2048.profile.png} % Replace with your image file
          \end{figure}
     \end{itemize}
 \end{frame}
 
 \begin{frame}
-    \frametitle{Was haben wir gemacht}
+    \frametitle{Measurement}
     \begin{itemize}
-        \item beste Cuda Config bei variierender Arraygröße
-          \begin{figure}
-              \centering
-              \includegraphics[width=0.8\linewidth]{cuda_runtime_vs_array_size.jpg}
-          \end{figure}
+        \item average throughput of program started with different cuda configs
+         \begin{figure}
+             \centering
+             \includegraphics[width=0.8\linewidth]{compressed_configs.png} % Replace with your image file
+             \includegraphics[width=0.5\linewidth]{compressed_1GiB_1024_2048.profile.png} % Replace with your image file
+         \end{figure}
     \end{itemize}
 \end{frame}
 
 \begin{frame}
-    \frametitle{Fragen}
-    Nvidia RTX 8000
+    \frametitle{Measurement}
     \begin{itemize}
-        \item 4608 CUDA cores
-        \item 72 SMs mit je 64 Threads
-        \item Turing Architektur → maximal 16 Thread-Blocks pro SM.
-              Ist $72 \cdot 16 = 1152$ maximale Anzahl rechnender Blöcke
-              auf ganzer GPU zu einem Zeitpunkt?
+        \item use best block and grid size for uncompressed for varying array sizes
+         \begin{figure}
+             \centering
+             \includegraphics[width=0.8\linewidth]{uncompressed_array_sizes.png} % Replace with your image file
+         \end{figure}
     \end{itemize}
 \end{frame}
 
 \begin{frame}
-    \frametitle{Fragen}
+    \frametitle{Measurement}
     \begin{itemize}
-        \item Was ist in der Aufgabenstellung mit "static bit size" (Seite 5) gemeint?
+        \item use best block and grid size for compressed for varying array sizes
+         \begin{figure}
+             \centering
+             \includegraphics[width=0.8\linewidth]{compressed_array_sizes.png} % Replace with your image file
+         \end{figure}
     \end{itemize}
 \end{frame}
 
-\begin{frame}[fragile]
-    \frametitle{Fragen}
-    \framesubtitle{Kompression}
-    Daten auf dem Bus zwischen Host und GPU, wenn bit-gepackt in uin16
-    \begin{lstlisting}
-unkomprimiertes Beispiel
-a: 0000 0xxx
-b: 000x xxxx
-c: 0xxx xxxx
-d: 00xx xxxx
-
-komprimiertes Bsp.   gepackte bit Folge
-a:       xxx                                aaa
-b:    x xxxx                          bbbb baaa
-c:  xxx xxxx                 ccc cccc bbbb baaa
-d:   xx xxxx         d dddd dccc cccc bbbb baaa
-    \end{lstlisting}
-    a, b und c passen in einen uint16, aber d nicht noch zusätzlich.
-\end{frame}
-
-\begin{frame}[fragile]
-    \frametitle{Fragen}
-    \framesubtitle{Kompression}
-    Frage: Wäre uint16 compressed bit-string dann
-           "0ccc cccc bbbb baaa"?
-
-    Da jeder komprimierte String vom 1 startet müssen Nullen als
-    Präfix Lückenfüller sein.\\~
-
-    Frage: Wie dekomprimiert man?\\~
-    Antwort: Gar nicht. Man fügt Null zwischen zwei komprimierten Zahlen ein um
-                        Overflow zu verhindern und kann so ganz normal rechen,
-                        wobei es problematisch wird, wenn die gepackten Summanden
-                        unterschiedlich fragmentiert sind:
-    \begin{lstlisting}
-            "0ccc ccc0 bbbb 0aaa"
-          + "0hh0 gfff f0ee 0ddd"
-    \end{lstlisting}
-\end{frame}
-
-\begin{frame}[fragile]
-    \frametitle{Fragen}
-    \framesubtitle{Kompression}
-    Ist das die erwartete Interpretation?
-    \begin{lstlisting}
-        "000 00 0cccccc 0bbbb 0aaa"
-      + "0hh 0g 000ffff 000ee 0ddd"
-    \end{lstlisting}
-\end{frame}
+%\begin{frame}[fragile]
+%    \frametitle{Algorithmic scetch}
+%    \framesubtitle{compression}
+%    \begin{lstlisting}
+%uncompressed example
+%a: 0000 0xxx
+%b: 000x xxxx
+%c: 0xxx xxxx
+%d: 00xx xxxx
+%
+%compressed example        packed bit string
+%a:       xxx                                aaa
+%b:    x xxxx                          bbbb baaa
+%c:  xxx xxxx                 ccc cccc bbbb baaa
+%d:   xx xxxx         d dddd dccc cccc bbbb baaa
+%    \end{lstlisting}
+%    a, b and c fit into the `uint16`, but d does not additionally fit
+%\end{frame}
+%
+%\begin{frame}[fragile]
+%    \frametitle{Fragen}
+%    \framesubtitle{compression}
+%    Frage: Wäre uint16 compressed bit-string dann
+%           "0ccc cccc bbbb baaa"?
+%
+%    Da jeder komprimierte String vom 1 startet müssen Nullen als
+%    Präfix Lückenfüller sein.\\~
+%
+%    Frage: Wie dekomprimiert man?\\~
+%    Antwort: Gar nicht. Man fügt Null zwischen zwei komprimierten Zahlen ein um
+%                        Overflow zu verhindern und kann so ganz normal rechen,
+%                        wobei es problematisch wird, wenn die gepackten Summanden
+%                        unterschiedlich fragmentiert sind:
+%    \begin{lstlisting}
+%            "0ccc ccc0 bbbb 0aaa"
+%          + "0hh0 gfff f0ee 0ddd"
+%    \end{lstlisting}
+%\end{frame}
+%
+%\begin{frame}[fragile]
+%    \frametitle{Fragen}
+%    \framesubtitle{Kompression}
+%    Ist das die erwartete Interpretation?
+%    \begin{lstlisting}
+%        "000 00 0cccccc 0bbbb 0aaa"
+%      + "0hh 0g 000ffff 000ee 0ddd"
+%    \end{lstlisting}
+%\end{frame}
 
 %\begin{frame}
 %    \frametitle{Probleme}
